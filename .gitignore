@@ -1,0 +1,42 @@
+**/node_modules/
+**/.next/
+**/out/
+
+**/.env
+**/.env.local
+**/.env.*
+
+**/*.log
+.DS_Store
+Thumbs.db
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.venv/
+**/venv/
+**/env/
+
+# SQLite DB（ローカルデータ）
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+
+# アップロードファイル
+chatbot_backend/data/uploads/
+
+# Supabase CLI
+supabase/.temp/
+
+# Claude Code設定
+.claude/
+
+# 設計書・スクリーンショット
+*.pdf
+*.docx
+*.png
+*.txt
+!requirements.txt
+.vercel

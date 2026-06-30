@@ -1,0 +1,352 @@
+// app/chat/page.tsx
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import ChatContainer from "@/components/ChatContainer";
+import ChatBubble from "@/components/ChatBubble";
+import ChatInput from "@/components/ChatInput";
+import TypingDots from "@/components/TypingDots";
+import BackButton from "@/components/BackButton";
+
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  messageId?: string;
+  conversationId?: string;
+  feedback?: 1 | -1;
+};
+
+type EarthquakeStatus = {
+  is_active: boolean;
+  intensity: string | null;
+  area: string | null;
+  detected_at: string | null;
+};
+
+// ガス漏れ関連キーワード
+const GAS_LEAK_KEYWORDS = ["ガス漏れ", "ガスもれ", "ガスのにおい", "ガスくさい", "ガス臭", "異臭", "くさい"];
+const EMERGENCY_PHONE = "旭川市：0166-45-2800 / 江別市：011-385-7913";
+
+// ====== 会話履歴保持（localStorage） ======
+const LS_KEY = "rag_chat_messages_v1";
+const LS_SESSION_KEY = "rag_chat_session_v1";
+
+// コスト気にしない前提でも、無限に増えると遅くなるので安全上限だけ入れます（必要なら増やしてOK）
+const MAX_STORE_TURNS = 200; // 保存するメッセージ数上限
+const MAX_SEND_TURNS = 60; // APIに送る履歴数（/api/chat が履歴対応なら活きる）
+
+function safeJsonParse<T>(raw: string | null): T | null {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export default function ChatPage() {
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [input, setInput] = useState("");
+  const [thinking, setThinking] = useState(false);
+  const [sessionId, setSessionId] = useState<string>("");
+  const [quakeStatus, setQuakeStatus] = useState<EarthquakeStatus>({ is_active: false, intensity: null, area: null, detected_at: null });
+
+  // UI表示用：API疎通状態
+  const [apiStatus, setApiStatus] = useState<"idle" | "connected" | "error">(
+    "idle"
+  );
+
+  // 自動スクロール
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  // 地震ステータスポーリング（5分ごと）
+  useEffect(() => {
+    async function checkQuake() {
+      try {
+        const res = await fetch("/api/earthquake-status");
+        if (res.ok) setQuakeStatus(await res.json() as EarthquakeStatus);
+      } catch { /* silent */ }
+    }
+    checkQuake();
+    const id = setInterval(checkQuake, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // ガス漏れキーワード検知（入力中 OR 直近のユーザーメッセージ）
+  const lastUserMsg = messages.filter(m => m.role === "user").at(-1)?.content ?? "";
+  const showGasAlert = GAS_LEAK_KEYWORDS.some(kw => input.includes(kw) || lastUserMsg.includes(kw));
+
+  // 初回：localStorage から復元
+  useEffect(() => {
+    const saved = safeJsonParse<Msg[]>(localStorage.getItem(LS_KEY));
+    if (Array.isArray(saved) && saved.length) {
+      setMessages(saved);
+    }
+    // セッションID：既存を再利用 or 新規生成
+    const savedSession = localStorage.getItem(LS_SESSION_KEY);
+    if (savedSession) {
+      setSessionId(savedSession);
+    } else {
+      const newId = crypto.randomUUID();
+      setSessionId(newId);
+      localStorage.setItem(LS_SESSION_KEY, newId);
+    }
+  }, []);
+
+  // messages が変わるたびに保存
+  useEffect(() => {
+    if (!messages.length) {
+      localStorage.removeItem(LS_KEY);
+      return;
+    }
+    const trimmed = messages.slice(-MAX_STORE_TURNS);
+    localStorage.setItem(LS_KEY, JSON.stringify(trimmed));
+  }, [messages]);
+
+  // messages / thinking が変わったら最下部へ
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, thinking]);
+
+  const sendFeedback = async (index: number, value: 1 | -1) => {
+    const msg = messages[index];
+    if (!msg.messageId || !msg.conversationId) return;
+    setMessages((m) => m.map((x, i) => i === index ? { ...x, feedback: value } : x));
+    await fetch("/api/feedback", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: msg.conversationId, message_id: msg.messageId, value }),
+    }).catch(console.error);
+  };
+
+  const clearChat = () => {
+    if (thinking) return;
+    setMessages([]);
+    setInput("");
+    setApiStatus("idle");
+    localStorage.removeItem(LS_KEY);
+    // 「クリア」＝新しい会話の開始 → セッションIDを更新
+    const newId = crypto.randomUUID();
+    setSessionId(newId);
+    localStorage.setItem(LS_SESSION_KEY, newId);
+  };
+
+  async function sendMessage() {
+    const userMessage = input.trim();
+    if (!userMessage || thinking) return;
+
+    setInput("");
+    setThinking(true);
+
+    // setState の非同期ズレ対策：ここで「確定した履歴」を作る
+    const nextMessages: Msg[] = [...messages, { role: "user", content: userMessage }];
+
+    // UIに反映
+    setMessages(nextMessages);
+
+    try {
+      const url = "/api/chat";
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+
+        // ✅ 会話履歴保持のために messages も一緒に送る
+        // ※ 現状の /api/chat が messages を見ない場合でも害はなく、
+        //   もし将来 /api/chat 側を履歴対応にしたらそのまま効くようになります。
+        body: JSON.stringify({
+          message: userMessage,
+          top_k: 8,
+          messages: nextMessages.slice(-MAX_SEND_TURNS),
+          session_id: sessionId,
+        }),
+      });
+
+      type ChatApiResponse = { answer?: string; message_id?: string; conversation_id?: string; error?: string };
+      const data = await res.json().catch(() => ({})) as ChatApiResponse;
+
+      if (!res.ok) {
+        const msg = data?.error ?? `API error: ${res.status} ${res.statusText}`;
+        setApiStatus("error");
+        throw new Error(msg);
+      }
+
+      setApiStatus("connected");
+
+      const botReply = data?.answer ?? "回答に失敗しました。";
+
+      setMessages((m) => [
+        ...m,
+        {
+          role: "assistant",
+          content: botReply,
+          messageId: data?.message_id,
+          conversationId: data?.conversation_id,
+        },
+      ]);
+    } catch (e: unknown) {
+      console.error(e);
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: `エラー: ${e instanceof Error ? e.message : String(e)}` },
+      ]);
+    } finally {
+      setThinking(false);
+    }
+  }
+
+  const apiBadge =
+    apiStatus === "connected"
+      ? "connected"
+      : apiStatus === "error"
+      ? "error"
+      : "ready";
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+      {/* 背景の薄いグラデ（単調さ解消） */}
+      <div className="pointer-events-none fixed inset-0 opacity-45">
+        <div className="absolute -top-40 left-10 h-96 w-96 rounded-full bg-fuchsia-500/30 blur-3xl" />
+        <div className="absolute top-40 right-10 h-96 w-96 rounded-full bg-cyan-500/25 blur-3xl" />
+        <div className="absolute bottom-10 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-emerald-500/15 blur-3xl" />
+      </div>
+
+      <ChatContainer>
+        {/* 既存コンテナの上に “カード枠” を置く */}
+        <div className="relative mx-auto w-full max-w-4xl px-4 py-8">
+          {/* Header */}
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <BackButton />
+              <div>
+                <div className="text-xs text-zinc-400">RAG Chat</div>
+                <h1 className="text-xl font-semibold tracking-tight">チャット</h1>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
+                top_k: 8
+              </span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
+                API: {apiBadge}
+              </span>
+
+              <button
+                type="button"
+                onClick={clearChat}
+                disabled={thinking || messages.length === 0}
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300 disabled:opacity-50"
+                title="会話を消去"
+              >
+                クリア
+              </button>
+            </div>
+          </div>
+
+          {/* Chat panel */}
+          <div className="rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-sm font-semibold">Conversation</div>
+              <div className="text-xs text-zinc-400">
+                サイトの情報を根拠に回答します
+              </div>
+            </div>
+
+            {/* 緊急地震バナー */}
+            {quakeStatus.is_active && (
+              <div className="mb-3 rounded-xl border border-red-500/60 bg-red-600/25 p-3 flex items-start gap-3 animate-pulse">
+                <span className="text-2xl leading-none">🚨</span>
+                <div className="flex-1">
+                  <p className="text-red-300 font-bold text-sm">緊急地震情報 — 震度{quakeStatus.intensity}を検知</p>
+                  <p className="text-red-200 text-xs mt-0.5">{quakeStatus.area}</p>
+                  <p className="text-red-100 text-xs mt-1">
+                    ガスメーターが遮断された場合は復帰手順をご確認ください。
+                    緊急の場合は <span className="font-bold text-white">{EMERGENCY_PHONE}（24時間）</span> へ。
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="min-h-[380px] max-h-[60vh] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4">
+              {messages.length === 0 ? (
+                <div className="text-sm text-zinc-400">
+                  例：
+                  <span className="text-zinc-200">
+                    「はたらくあさひかわとは？」
+                  </span>
+                </div>
+              ) : null}
+
+              <div className="space-y-3">
+                {messages.map((m, i) => (
+                  <div key={i}>
+                    <ChatBubble role={m.role}>{m.content}</ChatBubble>
+                    {m.role === "assistant" && m.messageId && (
+                      <div className="flex gap-2 mt-1 ml-1">
+                        <button
+                          onClick={() => sendFeedback(i, 1)}
+                          disabled={!!m.feedback}
+                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === 1 ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+                        >
+                          👍 解決した
+                        </button>
+                        <button
+                          onClick={() => sendFeedback(i, -1)}
+                          disabled={!!m.feedback}
+                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === -1 ? "bg-blue-500/20 border-blue-500/40 text-blue-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+                        >
+                          👎 解決しなかった
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {thinking && (
+                  <ChatBubble role="assistant">
+                    <TypingDots />
+                  </ChatBubble>
+                )}
+
+                <div ref={bottomRef} />
+              </div>
+            </div>
+
+            {/* Input area */}
+            <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-3">
+              <ChatInput
+                value={input}
+                onChange={setInput}
+                onSend={sendMessage}
+                disabled={thinking}
+              />
+
+              {/* ガス漏れ緊急アラート */}
+              {showGasAlert && (
+                <div className="mt-3 rounded-xl border-2 border-red-500 bg-red-600/40 p-3 flex items-start gap-3">
+                  <span className="text-2xl leading-none">⚠️</span>
+                  <div>
+                    <p className="text-white font-bold text-sm">ガス漏れの疑いがある場合は、すぐにご連絡ください</p>
+                    <p className="text-white text-xl font-bold tracking-wider mt-1">{EMERGENCY_PHONE}</p>
+                    <p className="text-red-200 text-xs mt-1">24時間受付 ／ 火気厳禁・窓を開けて換気してください</p>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-2 text-xs text-zinc-400">
+                Enterで送信／Shift+Enterで改行（実装がある場合）
+              </div>
+
+              {/* デバッグ表示（必要なら有効化）
+              <div className="mt-1 text-[10px] text-zinc-500">
+                保存: {messages.length} / 送信履歴: {outboundMessages.length}
+              </div>
+              */}
+            </div>
+          </div>
+        </div>
+      </ChatContainer>
+    </div>
+  );
+}

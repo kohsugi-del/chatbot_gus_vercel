@@ -1,0 +1,96 @@
+name: Earthquake Emergency Monitor
+
+on:
+  schedule:
+    # 5分ごとに実行（GitHub Actions の最小間隔）
+    - cron: "*/5 * * * *"
+
+  workflow_dispatch:
+    inputs:
+      client_id:
+        description: "対象クライアントID"
+        required: false
+        default: "asahikawa-gas"
+
+permissions: {}
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: Install dependencies
+        run: pip install requests supabase
+
+      - name: Run earthquake monitor
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLIENT_ID: ${{ github.event.inputs.client_id || 'asahikawa-gas' }}
+        run: |
+          python3 << 'PYEOF'
+          import os, sys, requests
+          from datetime import datetime, timezone, timedelta
+          from supabase import create_client
+
+          JMA_API_URL = "https://www.jma.go.jp/bosai/quake/data/list.json"
+          INTENSITY_THRESHOLD = {"5+", "6-", "6+", "7"}
+          CHECK_WINDOW_MINUTES = 30
+          CLIENT_ID = os.getenv("CLIENT_ID", "asahikawa-gas")
+
+          url = os.getenv("SUPABASE_URL", "")
+          key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+          if not url or not key:
+              print("SUPABASE_URL or key is missing", file=sys.stderr)
+              sys.exit(1)
+
+          supabase = create_client(url, key)
+          print(f"[earthquake_monitor] start | client={CLIENT_ID}")
+
+          try:
+              resp = requests.get(JMA_API_URL, timeout=15,
+                                  headers={"User-Agent": "chatbot-emergency-monitor/1.0"})
+              resp.raise_for_status()
+              events = resp.json()
+          except Exception as e:
+              print(f"[earthquake_monitor] JMA API fetch failed: {e}", file=sys.stderr)
+              sys.exit(0)
+
+          now = datetime.now(timezone.utc)
+          cutoff = now - timedelta(minutes=CHECK_WINDOW_MINUTES)
+          event_info = None
+
+          for event in events:
+              maxi = event.get("maxi", "")
+              if maxi not in INTENSITY_THRESHOLD:
+                  continue
+              at_str = event.get("at", "")
+              try:
+                  at = datetime.fromisoformat(at_str).astimezone(timezone.utc)
+              except Exception:
+                  continue
+              if at < cutoff:
+                  continue
+              event_info = {
+                  "intensity": maxi,
+                  "area": event.get("anm", "不明"),
+              }
+              break
+
+          is_active = event_info is not None
+          data = {
+              "site_id": -1,
+              "status": "emergency" if is_active else "normal",
+              "last_url": event_info["intensity"] if event_info else None,
+              "last_error": event_info["area"] if event_info else None,
+              "updated_at": now.isoformat(),
+          }
+
+          supabase.table("ingest_state").upsert(data, on_conflict="site_id").execute()
+
+          if is_active:
+              print(f"[earthquake_monitor] EMERGENCY: 震度{event_info['intensity']} / {event_info['area']}")
+          else:
+              print("[earthquake_monitor] normal | no emergency in the last 30 minutes")
+          PYEOF

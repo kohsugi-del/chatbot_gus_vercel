@@ -1,0 +1,8 @@
+requests
+python-dotenv
+supabase
+beautifulsoup4
+lxml
+openai
+pyyaml
+SQLAlchemy>=2.0
