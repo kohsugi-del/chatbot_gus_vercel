@@ -1,11 +1,11 @@
 // app/api/chat/route.ts
 // 埋め込み: OpenAI text-embedding-3-small
-// 回答生成: AI SDK 経由（AI_PROVIDER=anthropic/google で切替、デフォルト: anthropic）
+// 回答生成: AI SDK 経由（Google Gemini）
 // 対象: asahikawa-gas.co.jp（クライアント設定ファイルで切替可）
 
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { generateText, type ModelMessage, type UserModelMessage } from "ai";
+import { generateText, type ModelMessage } from "ai";
 import { createClient } from "@supabase/supabase-js";
 import {
   startConversation,
@@ -15,7 +15,7 @@ import {
 } from "@/lib/log";
 import { getClientConfig } from "@/lib/getClientConfig";
 import { calcComplexityScore, estimateCostJpy } from "@/lib/smartRouting";
-import { buildModel, getModelId, getProvider } from "@/lib/aiProvider";
+import { buildModel, getModelId } from "@/lib/aiProvider";
 import type { ConversationMode, ClientConfig, ChatRequest, ChatResponse } from "@/types/log";
 
 export const runtime = "nodejs";
@@ -211,16 +211,15 @@ function buildSystemPrompt(
 }
 
 // ============================================================
-// AI SDKメッセージ構築（プロバイダー対応・Anthropicのみキャッシュブロック使用）
+// AI SDKメッセージ構築
 // ============================================================
 
 function buildAiMessages(opts: {
   question: string;
   history: ClientMsg[];
   contexts: { text: string; source: string }[];
-  useCache: boolean;
 }): ModelMessage[] {
-  const { question, history, contexts, useCache } = opts;
+  const { question, history, contexts } = opts;
 
   const ragContext = contexts.length > 0
     ? contexts.map((c) => `source: ${c.source}\n${c.text}`.trim()).join("\n\n")
@@ -231,28 +230,10 @@ function buildAiMessages(opts: {
     content: m.content,
   }));
 
-  // Anthropicのみ: RAGコンテキストをキャッシュブロックとして分離
-  const lastUserMessage: UserModelMessage = useCache
-    ? {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `# 資料\n${ragContext}`,
-            providerOptions: {
-              anthropic: { cacheControl: { type: "ephemeral" } },
-            },
-          },
-          {
-            type: "text",
-            text: `# 今回の質問\n${question}\n\n# 回答（日本語）\n`,
-          },
-        ],
-      }
-    : {
-        role: "user",
-        content: `# 資料\n${ragContext}\n\n# 今回の質問\n${question}\n\n# 回答（日本語）\n`,
-      };
+  const lastUserMessage: ModelMessage = {
+    role: "user",
+    content: `# 資料\n${ragContext}\n\n# 今回の質問\n${question}\n\n# 回答（日本語）\n`,
+  };
 
   return [...historyMessages, lastUserMessage];
 }
@@ -314,46 +295,38 @@ export async function POST(req: NextRequest) {
     // ── 5) スマートルーティング ───────────────────────────────
     const complexityScore = calcComplexityScore(q, retrieved, sessionTurns);
     const tier = complexityScore > 0.7 ? "smart" : "fast";
-    const provider = getProvider();
     const model = buildModel(tier);
     const modelId = getModelId(tier);
 
-    // ── 6) 回答生成（AI SDK・プロバイダー切替対応）────────────
+    // ── 6) 回答生成（AI SDK・Gemini）──────────────────────────
     const aiMessages = buildAiMessages({
       question: q,
       history,
       contexts: retrieved.map((r) => ({ text: r.text, source: r.source })),
-      useCache: provider === "anthropic",
     });
 
     const startMs = Date.now();
-    const { text: rawAnswer, usage, providerMetadata } = await generateText({
+    const { text: rawAnswer, usage } = await generateText({
       model,
       system: systemPrompt,
       messages: aiMessages,
       maxOutputTokens: 2048,
       // Gemini 2.5系はThinkingモデルのためbudget=0で無効化（textを正常取得するため）
-      providerOptions: provider === "google"
-        ? { google: { thinkingConfig: { thinkingBudget: 0 } } }
-        : undefined,
+      providerOptions: { google: { thinkingConfig: { thinkingBudget: 0 } } },
     });
     const responseMs = Date.now() - startMs;
 
-    // ── キャッシュ統計・コスト推計（Anthropicのみ） ───────────
-    const anthropicMeta = (providerMetadata?.anthropic ?? {}) as Record<string, unknown>;
-    const cacheReadTokens  = Number(anthropicMeta.cacheReadInputTokens  ?? 0);
-    const cacheWriteTokens = Number(anthropicMeta.cacheCreationInputTokens ?? 0);
-    const cacheHit = cacheReadTokens > 0;
+    // ── コスト推計 ─────────────────────────────────────────────
+    const cacheReadTokens = 0;
+    const cacheHit = false;
     const estimatedCostJpy = estimateCostJpy(
       modelId,
       usage.inputTokens ?? 0,
       usage.outputTokens ?? 0,
       cacheReadTokens,
-      cacheWriteTokens,
     );
 
-    console.log(`[SmartRouting] complexity_score: ${complexityScore.toFixed(2)}, provider: ${provider}, model: ${modelId}`);
-    console.log(`[Cache] cache_hit: ${cacheHit}, cache_read_tokens: ${cacheReadTokens}`);
+    console.log(`[SmartRouting] complexity_score: ${complexityScore.toFixed(2)}, model: ${modelId}`);
     console.log(`[Cost] estimated_cost_jpy: ${estimatedCostJpy}`);
     console.log(`[DEBUG] rawAnswer length: ${rawAnswer.length}, preview: "${rawAnswer.slice(0, 100)}"`);
 
@@ -451,7 +424,7 @@ export async function POST(req: NextRequest) {
         hits: retrieved.length,
         mode,
         client_id: clientId,
-        provider,
+        provider: "google",
         model: modelId,
         complexity_score: complexityScore,
         cache_hit: cacheHit,

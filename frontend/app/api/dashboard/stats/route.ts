@@ -265,13 +265,13 @@ export async function GET(req: NextRequest) {
       const m = (row.model_used as string | null) ?? "unknown";
       modelMap[m] = (modelMap[m] ?? 0) + 1;
     }
-    const haikuCount  = modelMap["claude-haiku-4-5-20251001"] ?? 0;
-    const sonnetCount = modelMap["claude-sonnet-4-6"] ?? 0;
-    const modelTotal  = haikuCount + sonnetCount;
+    const flashLiteCount = modelMap["gemini-2.5-flash-lite"] ?? 0;
+    const flashCount     = modelMap["gemini-2.5-flash"] ?? 0;
+    const modelTotal     = flashLiteCount + flashCount;
     const modelUsage = {
-      haiku:     haikuCount,
-      sonnet:    sonnetCount,
-      haikuRate: modelTotal > 0 ? Math.round((haikuCount / modelTotal) * 1000) / 10 : 0,
+      flashLite:     flashLiteCount,
+      flash:         flashCount,
+      flashLiteRate: modelTotal > 0 ? Math.round((flashLiteCount / modelTotal) * 1000) / 10 : 0,
     };
 
     // ── キャッシュ統計 ────────────────────────────────────────

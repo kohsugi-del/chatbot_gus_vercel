@@ -1,6 +1,6 @@
 # rag_core.py
 # 埋め込み・インデクシング: OpenAI text-embedding-3-small（変更なし）
-# 回答生成: Anthropic Claude claude-sonnet-4-6（変更）
+# 回答生成: Google Gemini gemini-2.5-flash
 # 対象サイト: asahikawa-gas.co.jp
 
 import requests
@@ -8,15 +8,17 @@ from bs4 import BeautifulSoup
 from pypdf import PdfReader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
-import anthropic
+from google import genai
+from google.genai import types
 from typing import List, Dict
 from supabase_writer import save_to_supabase
 
 # ============ OpenAI（埋め込みのみ）============
 openai_client = OpenAI()
 
-# ============ Anthropic（回答生成）============
-anthropic_client = anthropic.Anthropic()
+# ============ Gemini（回答生成）============
+genai_client = genai.Client()
+GEMINI_MODEL = "gemini-2.5-flash"
 
 # システムプロンプト（プロンプトキャッシュ対象・固定テキスト）
 SYSTEM_PROMPT = """あなたは旭川ガス（asahikawa-gas.co.jp）専用の案内チャットボットです。
@@ -119,7 +121,7 @@ def build_index(
     return len(chunks)
 
 
-# ============ 6. 回答生成（Claude・プロンプトキャッシュ対応）============
+# ============ 6. 回答生成（Gemini）============
 def answer(query: str, retrieved_docs: list) -> str:
     """
     retrieved_docs: [
@@ -134,23 +136,13 @@ def answer(query: str, retrieved_docs: list) -> str:
             d["text"] for d, _ in retrieved_docs
         )
 
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        # システムプロンプトにプロンプトキャッシュを適用（繰り返し呼び出し時にコスト削減）
-        system=[
-            {
-                "type": "text",
-                "text": SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        messages=[
-            {
-                "role": "user",
-                "content": f"# 資料\n{context}\n\n# 質問\n{query}\n\n# 回答（日本語・簡潔）",
-            }
-        ],
+    response = genai_client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=f"# 資料\n{context}\n\n# 質問\n{query}\n\n# 回答（日本語・簡潔）",
+        config=types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT,
+            max_output_tokens=2048,
+        ),
     )
 
-    return response.content[0].text
+    return response.text

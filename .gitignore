@@ -6,6 +6,9 @@
 **/.env.local
 **/.env.*
 
+# 移行用バンドル（APIキー等の平文シークレットを含むため）
+*.zip
+
 **/*.log
 .DS_Store
 Thumbs.db

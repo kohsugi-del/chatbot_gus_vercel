@@ -8,7 +8,7 @@ ALTER TABLE messages
   ADD COLUMN IF NOT EXISTS cache_read_tokens  INTEGER DEFAULT 0,
   ADD COLUMN IF NOT EXISTS estimated_cost_jpy FLOAT;
 
-COMMENT ON COLUMN messages.model_used         IS '使用モデル: claude-haiku-4-5-20251001 or claude-sonnet-4-6';
+COMMENT ON COLUMN messages.model_used         IS '使用モデル: gemini-2.5-flash-lite or gemini-2.5-flash';
 COMMENT ON COLUMN messages.complexity_score   IS '複雑度スコア 0.0〜1.0';
 COMMENT ON COLUMN messages.cache_hit          IS 'プロンプトキャッシュがヒットしたか';
 COMMENT ON COLUMN messages.cache_read_tokens  IS 'キャッシュから読み込んだトークン数';

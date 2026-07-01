@@ -1,5 +1,5 @@
 // lib/smartRouting.ts
-// スマートルーティング＋プロンプトキャッシュ コスト推計ユーティリティ
+// スマートルーティング＋コスト推計ユーティリティ
 
 export type RagChunk = {
   content?: string;
@@ -10,9 +10,6 @@ export type RagChunk = {
 const EXCHANGE_RATE = 155;
 
 const MODEL_PRICES: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
-  // Anthropic
-  "claude-haiku-4-5-20251001": { input: 0.80,  output: 4.00,  cacheRead: 0.08,   cacheWrite: 1.00 },
-  "claude-sonnet-4-6":          { input: 3.00,  output: 15.00, cacheRead: 0.30,   cacheWrite: 3.75 },
   // Google
   "gemini-2.0-flash-001":       { input: 0.10,  output: 0.40,  cacheRead: 0.025,  cacheWrite: 0.0  },
   "gemini-2.5-flash-lite":      { input: 0.10,  output: 0.40,  cacheRead: 0.025,  cacheWrite: 0.0  },
@@ -45,9 +42,9 @@ export function calcComplexityScore(
   return Math.min(score, 1.0);
 }
 
-// complexity_score > 0.7 → Sonnet、それ以外 → Haiku
+// complexity_score > 0.7 → Flash、それ以外 → Flash-Lite
 export function selectModel(complexityScore: number): string {
-  return complexityScore > 0.7 ? "claude-sonnet-4-6" : "claude-haiku-4-5-20251001";
+  return complexityScore > 0.7 ? "gemini-2.5-flash" : "gemini-2.5-flash-lite";
 }
 
 // 推定コスト計算（円）。cacheWriteTokens は省略可（省略時 0）
@@ -58,7 +55,7 @@ export function estimateCostJpy(
   cacheReadTokens: number,
   cacheWriteTokens = 0
 ): number {
-  const p = MODEL_PRICES[model] ?? MODEL_PRICES["claude-sonnet-4-6"];
+  const p = MODEL_PRICES[model] ?? MODEL_PRICES["gemini-2.5-flash"];
   const usd =
     (inputTokens      / 1_000_000) * p.input +
     (outputTokens     / 1_000_000) * p.output +

@@ -39,7 +39,7 @@ type StatsResponse = {
   category_distribution: { category: string; count: number; percentage: number }[]
   mode_history: { mode: string; started_at: string; ended_at: string | null }[]
   daily_emergency_trend: { date: string; count: number }[]
-  model_usage?: { haiku: number; sonnet: number; haikuRate: number }
+  model_usage?: { flashLite: number; flash: number; flashLiteRate: number }
   cache_stats?: { hitCount: number; hitRate: number; savedTokens: number }
   cost_stats?: { totalCostJpy: number; avgCostPerChat: number; estimatedMonthly: number }
 }

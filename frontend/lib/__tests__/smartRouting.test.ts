@@ -4,13 +4,13 @@ import { calcComplexityScore, selectModel, estimateCostJpy } from "../smartRouti
 // ── calcComplexityScore ────────────────────────────────────────
 
 describe("calcComplexityScore", () => {
-  it("短い入力・少ないチャンク → 低スコア（Haiku判定）", () => {
+  it("短い入力・少ないチャンク → 低スコア（Flash-Lite判定）", () => {
     const chunks = [{ similarity: 0.9 }];
     const score = calcComplexityScore("料金を教えて", chunks, 1);
     expect(score).toBeLessThanOrEqual(0.4);
   });
 
-  it("長い入力・複数チャンク・比較ワード → 高スコア（Sonnet判定）", () => {
+  it("長い入力・複数チャンク・比較ワード → 高スコア（Flash判定）", () => {
     const chunks = [
       { similarity: 0.9, category: "料金" },
       { similarity: 0.8, category: "安全" },
@@ -49,40 +49,40 @@ describe("calcComplexityScore", () => {
 // ── selectModel ────────────────────────────────────────────────
 
 describe("selectModel", () => {
-  it("complexity_score > 0.7 → Sonnet", () => {
-    expect(selectModel(0.8)).toBe("claude-sonnet-4-6");
-    expect(selectModel(1.0)).toBe("claude-sonnet-4-6");
+  it("complexity_score > 0.7 → Flash", () => {
+    expect(selectModel(0.8)).toBe("gemini-2.5-flash");
+    expect(selectModel(1.0)).toBe("gemini-2.5-flash");
   });
 
-  it("complexity_score <= 0.7 → Haiku", () => {
-    expect(selectModel(0.7)).toBe("claude-haiku-4-5-20251001");
-    expect(selectModel(0.0)).toBe("claude-haiku-4-5-20251001");
-    expect(selectModel(0.4)).toBe("claude-haiku-4-5-20251001");
+  it("complexity_score <= 0.7 → Flash-Lite", () => {
+    expect(selectModel(0.7)).toBe("gemini-2.5-flash-lite");
+    expect(selectModel(0.0)).toBe("gemini-2.5-flash-lite");
+    expect(selectModel(0.4)).toBe("gemini-2.5-flash-lite");
   });
 });
 
 // ── estimateCostJpy ────────────────────────────────────────────
 
 describe("estimateCostJpy", () => {
-  it("Haiku・キャッシュなし → Sonnet より安い", () => {
-    const haiku  = estimateCostJpy("claude-haiku-4-5-20251001", 5000, 500, 0);
-    const sonnet = estimateCostJpy("claude-sonnet-4-6",         5000, 500, 0);
-    expect(haiku).toBeLessThan(sonnet);
+  it("Flash-Lite・キャッシュなし → Flash より安い", () => {
+    const flashLite = estimateCostJpy("gemini-2.5-flash-lite", 5000, 500, 0);
+    const flash      = estimateCostJpy("gemini-2.5-flash",      5000, 500, 0);
+    expect(flashLite).toBeLessThan(flash);
   });
 
-  it("キャッシュヒット時はコストが大幅に下がる（読み込みは通常の10%）", () => {
-    const noCacheHaiku    = estimateCostJpy("claude-haiku-4-5-20251001", 4000, 500, 0,    0);
-    const withCacheHaiku  = estimateCostJpy("claude-haiku-4-5-20251001",  400, 500, 3600, 0);
-    expect(withCacheHaiku).toBeLessThan(noCacheHaiku);
+  it("キャッシュヒット時はコストが大幅に下がる（読み込みは通常の10%程度）", () => {
+    const noCache   = estimateCostJpy("gemini-2.5-flash-lite", 4000, 500, 0,    0);
+    const withCache = estimateCostJpy("gemini-2.5-flash-lite",  400, 500, 3600, 0);
+    expect(withCache).toBeLessThan(noCache);
   });
 
-  it("未知モデルは Sonnet 単価にフォールバック", () => {
-    const unknown = estimateCostJpy("claude-unknown", 5000, 500, 0);
-    const sonnet  = estimateCostJpy("claude-sonnet-4-6", 5000, 500, 0);
-    expect(unknown).toBe(sonnet);
+  it("未知モデルは Flash 単価にフォールバック", () => {
+    const unknown = estimateCostJpy("gemini-unknown", 5000, 500, 0);
+    const flash   = estimateCostJpy("gemini-2.5-flash", 5000, 500, 0);
+    expect(unknown).toBe(flash);
   });
 
   it("全トークンゼロ → コスト 0", () => {
-    expect(estimateCostJpy("claude-haiku-4-5-20251001", 0, 0, 0)).toBe(0);
+    expect(estimateCostJpy("gemini-2.5-flash-lite", 0, 0, 0)).toBe(0);
   });
 });

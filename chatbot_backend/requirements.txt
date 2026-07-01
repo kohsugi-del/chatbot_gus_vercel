@@ -9,7 +9,7 @@ lxml
 pypdf
 langchain-text-splitters
 openai
-anthropic
+google-genai
 numpy
 supabase
 pyyaml

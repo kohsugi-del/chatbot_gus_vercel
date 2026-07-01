@@ -5,9 +5,9 @@ import { Zap, Layers, CircleDollarSign } from "lucide-react"
 
 export type SmartRoutingStats = {
   modelUsage: {
-    haiku: number
-    sonnet: number
-    haikuRate: number
+    flashLite: number
+    flash: number
+    flashLiteRate: number
   }
   cacheStats: {
     hitCount: number
@@ -47,9 +47,9 @@ export function SmartRoutingKpiCards({ stats }: { stats: SmartRoutingStats }) {
               <span className="text-xs font-medium text-muted-foreground tracking-wide">モデル使用比率</span>
               <div className="flex items-baseline gap-1">
                 <span className="text-2xl font-bold tracking-tight text-foreground">
-                  {modelUsage.haikuRate.toFixed(1)}
+                  {modelUsage.flashLiteRate.toFixed(1)}
                 </span>
-                <span className="text-sm font-medium text-muted-foreground">% Haiku</span>
+                <span className="text-sm font-medium text-muted-foreground">% Flash-Lite</span>
               </div>
             </div>
             <div className="rounded-lg p-2.5 bg-primary/10">
@@ -61,19 +61,19 @@ export function SmartRoutingKpiCards({ stats }: { stats: SmartRoutingStats }) {
             <div className="flex h-2 overflow-hidden rounded-full bg-muted">
               <div
                 className="bg-emerald-500 transition-all"
-                style={{ width: `${modelUsage.haikuRate}%` }}
+                style={{ width: `${modelUsage.flashLiteRate}%` }}
               />
               <div
                 className="bg-blue-500 transition-all"
-                style={{ width: `${100 - modelUsage.haikuRate}%` }}
+                style={{ width: `${100 - modelUsage.flashLiteRate}%` }}
               />
             </div>
             <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
-              <span className="text-emerald-600 font-medium">Haiku {modelUsage.haiku}件</span>
-              <span className="text-blue-600 font-medium">Sonnet {modelUsage.sonnet}件</span>
+              <span className="text-emerald-600 font-medium">Flash-Lite {modelUsage.flashLite}件</span>
+              <span className="text-blue-600 font-medium">Flash {modelUsage.flash}件</span>
             </div>
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">スマートルーティングにより Sonnet 使用を最小化</p>
+          <p className="mt-2 text-xs text-muted-foreground">スマートルーティングにより Flash 使用を最小化</p>
         </CardContent>
       </Card>
 
