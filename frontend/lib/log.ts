@@ -3,7 +3,7 @@
 // サービスロールキーを使用してRLSをバイパスする（サーバーサイド専用）
 
 import { supabaseAdmin } from "./supabase";
-import type { ConversationMode, EscalateType } from "@/types/log";
+import type { ConversationMode, EscalateType, InputMethod } from "@/types/log";
 
 // ── セッション開始 ─────────────────────────────────────────────
 export async function startConversation(params: {
@@ -31,6 +31,7 @@ export async function startConversation(params: {
 export async function logUserMessage(params: {
   conversationId: string;
   content: string;
+  inputMethod?: InputMethod; // 未指定時は "text" として扱う
 }): Promise<string> {
   const { data, error } = await supabaseAdmin
     .from("messages")
@@ -39,6 +40,7 @@ export async function logUserMessage(params: {
       role: "user",
       content: params.content,
       content_length: params.content.length,
+      input_method: params.inputMethod ?? "text",
     })
     .select("id")
     .single();

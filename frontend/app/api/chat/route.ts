@@ -346,7 +346,7 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      await logUserMessage({ conversationId, content: q });
+      await logUserMessage({ conversationId, content: q, inputMethod: body.input_method ?? "text" });
 
       if (matchedKeyword) {
         await escalateConversation({ conversationId, escalateType: "keyword" });

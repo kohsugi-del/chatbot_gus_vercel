@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
       modelUsageRows,
       cacheStatsRows,
       costStatsRows,
+      inputMethodRows,
     ] = await Promise.all([
       // 1. 選択月の会話（サマリー用）
       supabaseAdmin
@@ -136,6 +137,14 @@ export async function GET(req: NextRequest) {
         .select("estimated_cost_jpy")
         .eq("role", "assistant")
         .not("estimated_cost_jpy", "is", null)
+        .gte("created_at", startDate)
+        .lt("created_at", endDate),
+
+      // 13. 音声 vs テキスト入力比率（選択月のユーザーメッセージ）
+      supabaseAdmin
+        .from("messages")
+        .select("input_method")
+        .eq("role", "user")
         .gte("created_at", startDate)
         .lt("created_at", endDate),
     ]);
@@ -305,6 +314,18 @@ export async function GET(req: NextRequest) {
       estimatedMonthly,
     };
 
+    // ── 音声入力比率 ──────────────────────────────────────────
+    const inputMethodRowsData = inputMethodRows.data ?? [];
+    const voiceCount = inputMethodRowsData.filter((r) => r.input_method === "voice").length;
+    const textCount = inputMethodRowsData.length - voiceCount;
+    const inputMethodStats = {
+      voice: voiceCount,
+      text: textCount,
+      voiceRate: inputMethodRowsData.length > 0
+        ? Math.round((voiceCount / inputMethodRowsData.length) * 1000) / 10
+        : 0,
+    };
+
     return NextResponse.json({
       summary: {
         total_count: totalCount,
@@ -325,6 +346,7 @@ export async function GET(req: NextRequest) {
       model_usage: modelUsage,
       cache_stats: cacheStats,
       cost_stats: costStats,
+      input_method_stats: inputMethodStats,
     });
   } catch (e: unknown) {
     const err = e as { message?: string };

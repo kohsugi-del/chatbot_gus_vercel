@@ -7,6 +7,7 @@ export type ResolvedMethod  = "feedback_positive" | "auto_timeout";
 export type MessageRole     = "user" | "assistant";
 export type FeedbackValue   = 1 | -1;
 export type CategoryTag     = "normal" | "emergency";
+export type InputMethod     = "text" | "voice";
 
 // クライアント固有設定
 export type ClientConfig = {
@@ -61,6 +62,7 @@ export type Message = {
   retrieved_doc_sources: string[] | null;
   unresolved: boolean;
   response_ms: number | null;
+  input_method: InputMethod;
   feedback: FeedbackValue | null;
   feedback_at: string | null;
   created_at: string;
@@ -81,6 +83,13 @@ export type ChatRequest = {
   message: string;
   conversation_id?: string;     // 2回目以降は渡す
   scenario_context?: string;    // シナリオエンジン: 現在のノード文脈
+  input_method?: InputMethod;   // 未指定時は "text" として扱う
+};
+
+// /api/voice レスポンス型
+export type VoiceResponse = {
+  text: string;        // Whisper APIが返したテキスト
+  duration_ms: number; // 処理時間（ミリ秒）
 };
 
 // /api/chat レスポンス型

@@ -7,6 +7,8 @@ import {
   SCENARIOS,
   type ScenarioChoice,
 } from "@/lib/scenarios";
+import { VoiceInputButton } from "@/components/VoiceInputButton";
+import type { InputMethod } from "@/types/log";
 
 type RetrievedDoc = {
   id: string;
@@ -320,7 +322,7 @@ export default function ChatWidget({
     }
   };
 
-  const send = async (overrideQ?: string) => {
+  const send = async (overrideQ?: string, inputMethod: InputMethod = "text") => {
     const q = (overrideQ ?? input).trim();
     if (!q || thinking) return;
 
@@ -350,6 +352,7 @@ export default function ChatWidget({
           category_id: categoryId,
           mode: earthquakeStatus.is_active ? "emergency" : "normal",
           scenario_context: scenarioCtx,
+          input_method: inputMethod,
         }),
       });
 
@@ -381,6 +384,11 @@ export default function ChatWidget({
       setThinking(false);
     }
   };
+
+  // 音声認識完了時：認識テキストで即送信する
+  const handleTranscribed = useCallback((text: string, method: InputMethod) => {
+    void send(text, method);
+  }, [send]);
 
   // ===== 共通スタイル（必要に応じて調整）=====
   const Z = 999999;
@@ -1015,6 +1023,7 @@ export default function ChatWidget({
               placeholder={currentNode ? "このステップについてご質問できます" : "ご質問をどうぞ"}
               style={inputStyle}
             />
+            <VoiceInputButton onTranscribed={handleTranscribed} disabled={thinking} idleBg="rgba(46,197,244,0.12)" />
             <button
               type="button"
               onClick={() => send()}
