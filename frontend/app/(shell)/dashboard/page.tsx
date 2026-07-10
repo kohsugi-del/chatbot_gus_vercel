@@ -114,6 +114,16 @@ export default function DashboardPage() {
   const [budgetUsageRate, setBudgetUsageRate] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [clientLabel, setClientLabel] = useState("旭川ガス")
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((me) => {
+        if (me?.role === "quest") setClientLabel("クウェスト")
+      })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     async function load() {
@@ -276,7 +286,7 @@ export default function DashboardPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="gap-1 text-xs">
               <Building2 className="h-3 w-3" />
-              旭川ガス
+              {clientLabel}
             </Badge>
             <div className="flex items-center gap-1">
               <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
@@ -371,7 +381,7 @@ export default function DashboardPage() {
 
         <footer className="mt-8 border-t border-border/40 pt-4 pb-6">
           <p className="text-center text-xs text-muted-foreground">
-            {`${selectedYear}年${selectedMonth}月度 月次運用レポート | 旭川ガス AIチャットボット | CONFIDENTIAL`}
+            {`${selectedYear}年${selectedMonth}月度 月次運用レポート | ${clientLabel} AIチャットボット | CONFIDENTIAL`}
           </p>
       </footer>
     </div>
