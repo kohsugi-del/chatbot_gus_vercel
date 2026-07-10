@@ -8,7 +8,7 @@ export default function BackButton() {
   return (
     <button
       onClick={() => router.back()}
-      className="text-sm text-blue-400 hover:underline"
+      className="text-sm text-primary hover:underline"
     >
       ← 戻る
     </button>

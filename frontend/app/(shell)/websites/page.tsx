@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import StatusBadge from "@/components/StatusBadge";
-import BackButton from "@/components/BackButton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
@@ -212,58 +213,49 @@ export default function WebSiteManagePage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="pointer-events-none fixed inset-0 opacity-45">
-        <div className="absolute -top-40 left-10 h-96 w-96 rounded-full bg-fuchsia-500/30 blur-3xl" />
-        <div className="absolute top-40 right-10 h-96 w-96 rounded-full bg-cyan-500/25 blur-3xl" />
-        <div className="absolute bottom-10 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-emerald-500/15 blur-3xl" />
-      </div>
-
-      <div className="relative mx-auto w-full max-w-4xl px-4 py-8">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <BackButton />
-            <div>
-              <div className="text-xs text-zinc-400">Sites</div>
-              <h1 className="text-xl font-semibold tracking-tight">Webサイト管理</h1>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs">
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
-              sites: {sites.length}
-            </span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-emerald-300">
-              mode: API
-            </span>
-          </div>
+    <div className="mx-auto w-full max-w-4xl px-4 py-8">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-xs text-muted-foreground">Sites</div>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">Webサイト管理</h1>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full border border-border bg-card px-3 py-1 text-muted-foreground">
+            sites: {sites.length}
+          </span>
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">
+            mode: API
+          </span>
+        </div>
+      </div>
+
         {errorMsg && (
-          <div className="mb-4 rounded-2xl border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-200">
+          <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
             {errorMsg}
           </div>
         )}
 
         {/* Add site card */}
-        <section className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+        <section className="mb-6 rounded-3xl border border-border bg-card p-5 shadow-sm">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold">新しいWebサイトを追加</div>
-            <button
+            <div className="text-sm font-semibold text-foreground">新しいWebサイトを追加</div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs"
               onClick={() => { setBulkMode((v) => !v); setBulkResult(null); }}
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs hover:bg-white/10"
             >
               {bulkMode ? "単一入力へ" : "一括入力へ"}
-            </button>
+            </Button>
           </div>
 
           <div className="mt-4 space-y-3">
             {!bulkMode ? (
-              <input
+              <Input
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://example.com/"
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none placeholder:text-zinc-500 focus:border-white/20"
               />
             ) : (
               <textarea
@@ -271,7 +263,7 @@ export default function WebSiteManagePage() {
                 onChange={(e) => setBulkText(e.target.value)}
                 placeholder={`https://example.com/\nhttps://example.org/`}
                 rows={6}
-                className="w-full resize-y rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none placeholder:text-zinc-500 focus:border-white/20"
+                className="w-full resize-y rounded-xl border border-input bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
               />
             )}
 
@@ -279,7 +271,7 @@ export default function WebSiteManagePage() {
               <select
                 value={scope}
                 onChange={(e) => setScope(e.target.value as "single" | "all")}
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm outline-none focus:border-white/20"
+                className="w-full rounded-xl border border-input bg-transparent px-3 py-2 text-sm text-foreground outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
               >
                 <option value="single">このURLのみ（基本）</option>
                 <option value="all">配下すべて</option>
@@ -287,7 +279,7 @@ export default function WebSiteManagePage() {
               <div className="hidden sm:block" />
             </div>
 
-            <label className="flex items-center gap-2 text-xs text-zinc-300">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
               <input
                 type="checkbox"
                 checked={autoIngest}
@@ -297,37 +289,33 @@ export default function WebSiteManagePage() {
               追加後にすぐ取り込みを開始する
             </label>
 
-            <button
-              onClick={bulkMode ? addSitesBulk : addSite}
-              disabled={submitting}
-              className="w-full rounded-xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:opacity-90 disabled:opacity-60"
-            >
+            <Button onClick={bulkMode ? addSitesBulk : addSite} disabled={submitting} className="w-full">
               {submitting
                 ? bulkMode ? "一括追加中…" : "追加中…"
                 : bulkMode ? "＋ Webサイトを一括追加" : "＋ Webサイトを追加"}
-            </button>
+            </Button>
 
             {bulkMode && (
-              <div className="text-xs text-zinc-400">
+              <div className="text-xs text-muted-foreground">
                 ※ 改行/スペース/カンマ区切りOK・重複URLは自動で除外します
               </div>
             )}
 
             {bulkResult && (
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-xs text-zinc-300">
+              <div className="rounded-2xl border border-border bg-muted p-4 text-xs text-foreground">
                 <div className="font-semibold">
                   一括追加結果：{bulkResult.total}件中 {bulkResult.ok.length}件成功 /{" "}
                   {bulkResult.ng.length}件失敗
                 </div>
                 {bulkResult.ng.length > 0 && (
-                  <div className="mt-2 space-y-1 text-blue-200">
+                  <div className="mt-2 space-y-1 text-sky-800">
                     {bulkResult.ng.slice(0, 5).map((x) => (
                       <div key={x.url} className="truncate">
                         NG: {x.url}（{x.reason}）
                       </div>
                     ))}
                     {bulkResult.ng.length > 5 && (
-                      <div className="text-zinc-400">…他 {bulkResult.ng.length - 5} 件</div>
+                      <div className="text-muted-foreground">…他 {bulkResult.ng.length - 5} 件</div>
                     )}
                   </div>
                 )}
@@ -337,20 +325,16 @@ export default function WebSiteManagePage() {
         </section>
 
         {/* List card */}
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+        <section className="rounded-3xl border border-border bg-card p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold">登録済みWebサイト一覧</div>
-            <button
-              onClick={fetchSites}
-              disabled={loading}
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs hover:bg-white/10 disabled:opacity-60"
-            >
+            <div className="text-sm font-semibold text-foreground">登録済みWebサイト一覧</div>
+            <Button variant="outline" size="sm" onClick={fetchSites} disabled={loading} className="text-xs">
               {loading ? "更新中…" : "更新"}
-            </button>
+            </Button>
           </div>
 
           {sites.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-black/30 p-6 text-sm text-zinc-400">
+            <div className="rounded-2xl border border-border bg-muted p-6 text-sm text-muted-foreground">
               まだWebサイトが登録されていません
             </div>
           ) : (
@@ -358,23 +342,23 @@ export default function WebSiteManagePage() {
               {sites.map((site) => (
                 <div
                   key={site.id}
-                  className="rounded-2xl border border-white/10 bg-black/30 p-4 hover:bg-black/40"
+                  className="rounded-2xl border border-border bg-muted p-4 hover:bg-accent/50"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <div className="truncate text-sm font-semibold">{site.url}</div>
-                        <span className="text-xs text-zinc-500">#{site.id}</span>
+                        <div className="truncate text-sm font-semibold text-foreground">{site.url}</div>
+                        <span className="text-xs text-muted-foreground">#{site.id}</span>
                       </div>
-                      <div className="mt-1 text-xs text-zinc-400">
+                      <div className="mt-1 text-xs text-muted-foreground">
                         {site.type} / {site.scope}
                         {site.ingested_urls != null && site.status === "done" && (
-                          <span className="ml-2 text-emerald-300">
+                          <span className="ml-2 text-emerald-700">
                             ・{site.ingested_urls}ページ取り込み済み
                           </span>
                         )}
                         {site.error_message && (
-                          <span className="ml-2 text-blue-200">・{site.error_message}</span>
+                          <span className="ml-2 text-sky-800">・{site.error_message}</span>
                         )}
                       </div>
                     </div>
@@ -382,34 +366,40 @@ export default function WebSiteManagePage() {
                     <div className="flex items-center gap-2">
                       <StatusBadge status={site.status} />
 
-                      <button
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => startIngest(site.id)}
                         disabled={loading || site.status === "crawling"}
-                        className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs hover:bg-white/10 disabled:opacity-60"
+                        className="text-xs"
                         title="取り込み開始"
                       >
                         ▶ 取込
-                      </button>
+                      </Button>
 
                       {(site.status === "done" || site.status === "error") && (
-                        <button
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => startIngest(site.id)}
                           disabled={loading}
-                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs hover:bg-white/10 disabled:opacity-60"
+                          className="text-xs"
                           title="再取り込み"
                         >
                           🔄 再取込
-                        </button>
+                        </Button>
                       )}
 
-                      <button
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => deleteSite(site.id)}
                         disabled={loading}
-                        className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-200 hover:bg-blue-500/15 disabled:opacity-60"
+                        className="text-xs text-destructive hover:text-destructive"
                         title="削除"
                       >
                         🗑 削除
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -418,8 +408,7 @@ export default function WebSiteManagePage() {
           )}
         </section>
 
-        <div className="mt-8 text-center text-xs text-zinc-500">Sites Dashboard</div>
-      </div>
+      <div className="mt-8 text-center text-xs text-muted-foreground">Sites Dashboard</div>
     </div>
   );
 }

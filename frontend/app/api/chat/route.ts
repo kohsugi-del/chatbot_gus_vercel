@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { generateText, type ModelMessage } from "ai";
+import type { GoogleGenerativeAIProviderMetadata } from "@ai-sdk/google";
 import { createClient } from "@supabase/supabase-js";
 import {
   startConversation,
@@ -294,7 +295,7 @@ export async function POST(req: NextRequest) {
 
     // ── 5) スマートルーティング ───────────────────────────────
     const complexityScore = calcComplexityScore(q, retrieved, sessionTurns);
-    const tier = complexityScore > 0.7 ? "smart" : "fast";
+    const tier = complexityScore > 0.5 ? "smart" : "fast";
     const model = buildModel(tier);
     const modelId = getModelId(tier);
 
@@ -306,7 +307,7 @@ export async function POST(req: NextRequest) {
     });
 
     const startMs = Date.now();
-    const { text: rawAnswer, usage } = await generateText({
+    const { text: rawAnswer, usage, providerMetadata } = await generateText({
       model,
       system: systemPrompt,
       messages: aiMessages,
@@ -317,8 +318,10 @@ export async function POST(req: NextRequest) {
     const responseMs = Date.now() - startMs;
 
     // ── コスト推計 ─────────────────────────────────────────────
-    const cacheReadTokens = 0;
-    const cacheHit = false;
+    // Gemini の暗黙キャッシュ利用状況（Google側で自動キャッシュされた場合のみ値が入る）
+    const googleMetadata = providerMetadata?.google as GoogleGenerativeAIProviderMetadata | undefined;
+    const cacheReadTokens = googleMetadata?.usageMetadata?.cachedContentTokenCount ?? 0;
+    const cacheHit = cacheReadTokens > 0;
     const estimatedCostJpy = estimateCostJpy(
       modelId,
       usage.inputTokens ?? 0,
@@ -350,11 +353,6 @@ export async function POST(req: NextRequest) {
 
       if (matchedKeyword) {
         await escalateConversation({ conversationId, escalateType: "keyword" });
-      } else if (isLowConfidence) {
-        await escalateConversation({
-          conversationId,
-          escalateType: "low_confidence",
-        });
       }
 
       messageId = await logAssistantMessage({
@@ -409,7 +407,7 @@ export async function POST(req: NextRequest) {
           title: r.title,
           source: r.source,
         })),
-      escalated: !!(matchedKeyword || isLowConfidence),
+      escalated: !!matchedKeyword,
       keyword_matched: matchedKeyword,
       response_ms: responseMs,
     };

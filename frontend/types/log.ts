@@ -2,7 +2,7 @@
 
 export type ChunkStrategy   = "qa_pair" | "semantic" | "table" | "fixed_size";
 export type ConversationMode = "normal" | "notice" | "emergency";
-export type EscalateType    = "keyword" | "low_confidence" | "manual";
+export type EscalateType    = "keyword" | "manual";
 export type ResolvedMethod  = "feedback_positive" | "auto_timeout";
 export type MessageRole     = "user" | "assistant";
 export type FeedbackValue   = 1 | -1;

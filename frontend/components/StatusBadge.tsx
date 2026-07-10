@@ -5,19 +5,19 @@ export default function StatusBadge({ status }: { status?: Status | string | nul
   const map: Record<Status, { label: string; className: string }> = {
     pending: {
       label: "準備中",
-      className: "bg-yellow-900 text-yellow-300",
+      className: "bg-amber-50 text-amber-700 border border-amber-200",
     },
     crawling: {
       label: "クロール中",
-      className: "bg-blue-900 text-blue-300 animate-pulse",
+      className: "bg-sky-50 text-sky-700 border border-sky-200 animate-pulse",
     },
     done: {
       label: "完了",
-      className: "bg-green-900 text-green-300",
+      className: "bg-emerald-50 text-emerald-700 border border-emerald-200",
     },
     error: {
       label: "エラー",
-      className: "bg-blue-900 text-blue-300",
+      className: "bg-red-50 text-red-700 border border-red-200",
     },
   };
 
@@ -27,7 +27,7 @@ export default function StatusBadge({ status }: { status?: Status | string | nul
   // ✅ 想定外のstatusでも必ず表示できるフォールバック
   const fallback = {
     label: status ? `不明: ${status}` : "不明",
-    className: "bg-zinc-800 text-zinc-200",
+    className: "bg-muted text-muted-foreground border border-border",
   };
 
   const view = s ?? fallback;

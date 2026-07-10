@@ -6,7 +6,6 @@ import ChatContainer from "@/components/ChatContainer";
 import ChatBubble from "@/components/ChatBubble";
 import ChatInput from "@/components/ChatInput";
 import TypingDots from "@/components/TypingDots";
-import BackButton from "@/components/BackButton";
 
 type Msg = {
   role: "user" | "assistant";
@@ -203,76 +202,65 @@ export default function ChatPage() {
       : "ready";
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      {/* 背景の薄いグラデ（単調さ解消） */}
-      <div className="pointer-events-none fixed inset-0 opacity-45">
-        <div className="absolute -top-40 left-10 h-96 w-96 rounded-full bg-fuchsia-500/30 blur-3xl" />
-        <div className="absolute top-40 right-10 h-96 w-96 rounded-full bg-cyan-500/25 blur-3xl" />
-        <div className="absolute bottom-10 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-emerald-500/15 blur-3xl" />
-      </div>
-
-      <ChatContainer>
-        {/* 既存コンテナの上に “カード枠” を置く */}
-        <div className="relative mx-auto w-full max-w-4xl px-4 py-8">
-          {/* Header */}
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <BackButton />
-              <div>
-                <div className="text-xs text-zinc-400">RAG Chat</div>
-                <h1 className="text-xl font-semibold tracking-tight">チャット</h1>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 text-xs">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
-                top_k: 8
-              </span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
-                API: {apiBadge}
-              </span>
-
-              <button
-                type="button"
-                onClick={clearChat}
-                disabled={thinking || messages.length === 0}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300 disabled:opacity-50"
-                title="会話を消去"
-              >
-                クリア
-              </button>
-            </div>
+    <ChatContainer>
+      {/* 既存コンテナの上に “カード枠” を置く */}
+      <div className="mx-auto w-full max-w-4xl px-4 py-8">
+        {/* Header */}
+        <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-xs text-muted-foreground">RAG Chat</div>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground">チャット</h1>
           </div>
 
-          {/* Chat panel */}
-          <div className="rounded-3xl border border-white/10 bg-white/5 p-4 backdrop-blur">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="rounded-full border border-border bg-card px-3 py-1 text-muted-foreground">
+              top_k: 8
+            </span>
+            <span className="rounded-full border border-border bg-card px-3 py-1 text-muted-foreground">
+              API: {apiBadge}
+            </span>
+
+            <button
+              type="button"
+              onClick={clearChat}
+              disabled={thinking || messages.length === 0}
+              className="rounded-full border border-border bg-card px-3 py-1 text-muted-foreground disabled:opacity-50"
+              title="会話を消去"
+            >
+              クリア
+            </button>
+          </div>
+        </div>
+
+        {/* Chat panel */}
+        <div className="rounded-3xl border border-border bg-card p-4 shadow-sm">
             <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm font-semibold">Conversation</div>
-              <div className="text-xs text-zinc-400">
+              <div className="text-sm font-semibold text-foreground">Conversation</div>
+              <div className="text-xs text-muted-foreground">
                 サイトの情報を根拠に回答します
               </div>
             </div>
 
             {/* 緊急地震バナー */}
             {quakeStatus.is_active && (
-              <div className="mb-3 rounded-xl border border-red-500/60 bg-red-600/25 p-3 flex items-start gap-3 animate-pulse">
+              <div className="mb-3 rounded-xl border border-red-300 bg-red-50 p-3 flex items-start gap-3 animate-pulse">
                 <span className="text-2xl leading-none">🚨</span>
                 <div className="flex-1">
-                  <p className="text-red-300 font-bold text-sm">緊急地震情報 — 震度{quakeStatus.intensity}を検知</p>
-                  <p className="text-red-200 text-xs mt-0.5">{quakeStatus.area}</p>
-                  <p className="text-red-100 text-xs mt-1">
+                  <p className="text-red-700 font-bold text-sm">緊急地震情報 — 震度{quakeStatus.intensity}を検知</p>
+                  <p className="text-red-600 text-xs mt-0.5">{quakeStatus.area}</p>
+                  <p className="text-red-700 text-xs mt-1">
                     ガスメーターが遮断された場合は復帰手順をご確認ください。
-                    緊急の場合は <span className="font-bold text-white">{EMERGENCY_PHONE}（24時間）</span> へ。
+                    緊急の場合は <span className="font-bold text-red-800">{EMERGENCY_PHONE}（24時間）</span> へ。
                   </p>
                 </div>
               </div>
             )}
 
-            <div className="min-h-[380px] max-h-[60vh] overflow-auto rounded-2xl border border-white/10 bg-black/30 p-4">
+            <div className="min-h-[380px] max-h-[60vh] overflow-auto rounded-2xl border border-border bg-muted p-4">
               {messages.length === 0 ? (
-                <div className="text-sm text-zinc-400">
+                <div className="text-sm text-muted-foreground">
                   例：
-                  <span className="text-zinc-200">
+                  <span className="text-foreground">
                     「はたらくあさひかわとは？」
                   </span>
                 </div>
@@ -287,14 +275,14 @@ export default function ChatPage() {
                         <button
                           onClick={() => sendFeedback(i, 1)}
                           disabled={!!m.feedback}
-                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === 1 ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === 1 ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "border-border bg-card text-muted-foreground hover:bg-accent"}`}
                         >
                           👍 解決した
                         </button>
                         <button
                           onClick={() => sendFeedback(i, -1)}
                           disabled={!!m.feedback}
-                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === -1 ? "bg-blue-500/20 border-blue-500/40 text-blue-300" : "border-white/10 bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === -1 ? "bg-sky-50 border-sky-200 text-sky-700" : "border-border bg-card text-muted-foreground hover:bg-accent"}`}
                         >
                           👎 解決しなかった
                         </button>
@@ -314,7 +302,7 @@ export default function ChatPage() {
             </div>
 
             {/* Input area */}
-            <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-3">
+            <div className="mt-4 rounded-2xl border border-border bg-muted p-3">
               <ChatInput
                 value={input}
                 onChange={setInput}
@@ -324,22 +312,22 @@ export default function ChatPage() {
 
               {/* ガス漏れ緊急アラート */}
               {showGasAlert && (
-                <div className="mt-3 rounded-xl border-2 border-red-500 bg-red-600/40 p-3 flex items-start gap-3">
+                <div className="mt-3 rounded-xl border-2 border-red-500 bg-red-50 p-3 flex items-start gap-3">
                   <span className="text-2xl leading-none">⚠️</span>
                   <div>
-                    <p className="text-white font-bold text-sm">ガス漏れの疑いがある場合は、すぐにご連絡ください</p>
-                    <p className="text-white text-xl font-bold tracking-wider mt-1">{EMERGENCY_PHONE}</p>
-                    <p className="text-red-200 text-xs mt-1">24時間受付 ／ 火気厳禁・窓を開けて換気してください</p>
+                    <p className="text-red-700 font-bold text-sm">ガス漏れの疑いがある場合は、すぐにご連絡ください</p>
+                    <p className="text-red-800 text-xl font-bold tracking-wider mt-1">{EMERGENCY_PHONE}</p>
+                    <p className="text-red-600 text-xs mt-1">24時間受付 ／ 火気厳禁・窓を開けて換気してください</p>
                   </div>
                 </div>
               )}
 
-              <div className="mt-2 text-xs text-zinc-400">
+              <div className="mt-2 text-xs text-muted-foreground">
                 Enterで送信／Shift+Enterで改行（実装がある場合）
               </div>
 
               {/* デバッグ表示（必要なら有効化）
-              <div className="mt-1 text-[10px] text-zinc-500">
+              <div className="mt-1 text-[10px] text-muted-foreground">
                 保存: {messages.length} / 送信履歴: {outboundMessages.length}
               </div>
               */}
@@ -347,6 +335,5 @@ export default function ChatPage() {
           </div>
         </div>
       </ChatContainer>
-    </div>
   );
 }

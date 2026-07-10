@@ -107,7 +107,7 @@ export async function resolveFeedback(params: {
       .eq("id", params.messageId),
     supabaseAdmin
       .from("conversations")
-      .update({ resolved: true, resolved_at: now, resolved_method: "feedback_positive", escalated: false })
+      .update({ resolved: true, resolved_at: now, resolved_method: "feedback_positive" })
       .eq("id", params.conversationId),
   ]);
 

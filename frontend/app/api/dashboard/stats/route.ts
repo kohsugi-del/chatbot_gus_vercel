@@ -1,6 +1,8 @@
 // app/api/dashboard/stats/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { verifySessionValue } from "@/lib/auth";
+import { MONTHLY_BUDGET_JPY } from "@/lib/smartRouting";
 
 const CLIENT_ID = process.env.NEXT_PUBLIC_CLIENT_ID ?? "default";
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -14,6 +16,9 @@ function toJstDateStr(utcStr: string): string {
 // GET /api/dashboard/stats?year=2026&month=3
 export async function GET(req: NextRequest) {
   try {
+    const session = await verifySessionValue(req.cookies.get("session")?.value);
+    const isQuest = session?.role === "quest";
+
     const { searchParams } = new URL(req.url);
     const nowJst = new Date(new Date().getTime() + JST_OFFSET_MS);
     const year = parseInt(searchParams.get("year") ?? String(nowJst.getUTCFullYear()));
@@ -182,7 +187,9 @@ export async function GET(req: NextRequest) {
     // ── よく聞かれた質問 ──────────────────────────────────────
     const questionMap: Record<string, number> = {};
     for (const row of topQuestions.data ?? []) {
-      questionMap[row.content] = (questionMap[row.content] ?? 0) + 1;
+      const content = row.content as string;
+      if (content.includes("�") || /[а-яёА-ЯЁЀ-ӿ]/.test(content)) continue; // 文字化けメッセージを除外（音声認識の誤認識など）
+      questionMap[content] = (questionMap[content] ?? 0) + 1;
     }
     const topQuestionsRanking = Object.entries(questionMap)
       .sort(([, a], [, b]) => b - a)
@@ -313,6 +320,8 @@ export async function GET(req: NextRequest) {
       avgCostPerChat:   Math.round(avgCostPerChat * 1000) / 1000,
       estimatedMonthly,
     };
+    // 旭川ガス側には金額を明かさず、予算に対する使用率(%)のみ提供
+    const budgetUsageRate = Math.round((estimatedMonthly / MONTHLY_BUDGET_JPY) * 1000) / 10;
 
     // ── 音声入力比率 ──────────────────────────────────────────
     const inputMethodRowsData = inputMethodRows.data ?? [];
@@ -343,9 +352,12 @@ export async function GET(req: NextRequest) {
       category_distribution: categoryDist,
       mode_history: modeHistoryData,
       daily_emergency_trend: dailyEmergencyTrend,
-      model_usage: modelUsage,
-      cache_stats: cacheStats,
-      cost_stats: costStats,
+      // 運用コストに関わる情報（モデル使用比率・キャッシュ統計・APIコスト）はクウェスト社内アカウントのみに表示
+      model_usage: isQuest ? modelUsage : undefined,
+      cache_stats: isQuest ? cacheStats : undefined,
+      cost_stats: isQuest ? costStats : undefined,
+      // 旭川ガス側は金額を出さず、予算使用率(%)のみ表示
+      budget_usage_rate: isQuest ? undefined : budgetUsageRate,
       input_method_stats: inputMethodStats,
     });
   } catch (e: unknown) {

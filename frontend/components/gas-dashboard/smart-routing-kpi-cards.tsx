@@ -1,7 +1,8 @@
 "use client"
 
 import { Card, CardContent } from "@/components/ui/card"
-import { Zap, Layers, CircleDollarSign } from "lucide-react"
+import { Zap, Layers, CircleDollarSign, Mic } from "lucide-react"
+import { MONTHLY_BUDGET_JPY } from "@/lib/smartRouting"
 
 export type SmartRoutingStats = {
   modelUsage: {
@@ -19,15 +20,19 @@ export type SmartRoutingStats = {
     avgCostPerChat: number
     estimatedMonthly: number
   }
+  inputMethodStats: {
+    voice: number
+    text: number
+    voiceRate: number
+  }
 }
 
-const MONTHLY_BUDGET = 35_000
 
 export function SmartRoutingKpiCards({ stats }: { stats: SmartRoutingStats }) {
-  const { modelUsage, cacheStats, costStats } = stats
+  const { modelUsage, cacheStats, costStats, inputMethodStats } = stats
 
   // 月間コストのアラート色（70%→黄、80%→赤）
-  const budgetRatio = costStats.estimatedMonthly / MONTHLY_BUDGET
+  const budgetRatio = costStats.estimatedMonthly / MONTHLY_BUDGET_JPY
   const costColor =
     budgetRatio >= 0.8 ? "text-red-600" :
     budgetRatio >= 0.7 ? "text-amber-600" :
@@ -38,7 +43,7 @@ export function SmartRoutingKpiCards({ stats }: { stats: SmartRoutingStats }) {
     ""
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       {/* カード①：モデル使用比率 */}
       <Card className="border-border/60">
         <CardContent className="p-5">
@@ -125,8 +130,44 @@ export function SmartRoutingKpiCards({ stats }: { stats: SmartRoutingStats }) {
             </span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            1会話あたり平均 ¥{costStats.avgCostPerChat.toFixed(3)} / 予算 ¥{MONTHLY_BUDGET.toLocaleString("ja-JP")}
+            1会話あたり平均 ¥{costStats.avgCostPerChat.toFixed(3)} / 予算 ¥{MONTHLY_BUDGET_JPY.toLocaleString("ja-JP")}
           </p>
+        </CardContent>
+      </Card>
+
+      {/* カード④：音声入力比率 */}
+      <Card className="border-border/60">
+        <CardContent className="p-5">
+          <div className="flex items-start justify-between">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground tracking-wide">音声入力比率</span>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-bold tracking-tight text-foreground">
+                  {inputMethodStats.voiceRate.toFixed(1)}
+                </span>
+                <span className="text-sm font-medium text-muted-foreground">%</span>
+              </div>
+            </div>
+            <div className="rounded-lg p-2.5 bg-primary/10">
+              <Mic className="h-5 w-5 text-primary" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="flex h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                className="bg-violet-500 transition-all"
+                style={{ width: `${inputMethodStats.voiceRate}%` }}
+              />
+              <div
+                className="bg-slate-400 transition-all"
+                style={{ width: `${100 - inputMethodStats.voiceRate}%` }}
+              />
+            </div>
+            <div className="mt-1.5 flex justify-between text-xs text-muted-foreground">
+              <span className="text-violet-600 font-medium">音声 {inputMethodStats.voice}件</span>
+              <span className="font-medium">テキスト {inputMethodStats.text}件</span>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>

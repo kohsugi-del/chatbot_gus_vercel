@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import BackButton from "@/components/BackButton";
 import StatusBadge from "@/components/StatusBadge";
+import { Button } from "@/components/ui/button";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
@@ -180,47 +180,41 @@ export default function IngestPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
-      <div className="pointer-events-none fixed inset-0 opacity-45">
-        <div className="absolute -top-40 left-10 h-96 w-96 rounded-full bg-fuchsia-500/30 blur-3xl" />
-        <div className="absolute top-40 right-10 h-96 w-96 rounded-full bg-cyan-500/25 blur-3xl" />
-        <div className="absolute bottom-10 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-emerald-500/15 blur-3xl" />
-      </div>
-
-      <div className="relative mx-auto w-full max-w-4xl px-4 py-8">
-        <div className="mb-5 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <BackButton />
-            <div>
-              <div className="text-xs text-zinc-400">Ingest</div>
-              <h1 className="text-xl font-semibold tracking-tight">ファイル管理</h1>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs">
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-zinc-300">
-              files: {files.length}
-            </span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-emerald-300">
-              mode: API
-            </span>
-          </div>
+    <div className="mx-auto w-full max-w-4xl px-4 py-8">
+      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <div className="text-xs text-muted-foreground">Ingest</div>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground">ファイル管理</h1>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          <span className="rounded-full border border-border bg-card px-3 py-1 text-muted-foreground">
+            files: {files.length}
+          </span>
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-700">
+            mode: API
+          </span>
+        </div>
+      </div>
+
         {errorMsg && (
-          <div className="mb-4 rounded-2xl border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-blue-200">
+          <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
             {errorMsg}
           </div>
         )}
 
-        <section className="mb-6 rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
-          <div className="mb-2 text-sm font-semibold">アップロード</div>
-          <p className="text-sm text-zinc-400">
+        <section className="mb-6 rounded-3xl border border-border bg-card p-5 shadow-sm">
+          <div className="mb-2 text-sm font-semibold text-foreground">アップロード</div>
+          <p className="text-sm text-muted-foreground">
             PDFをアップロードすると自動でチャンク化・ベクトル化してSupabaseに保存されます。
           </p>
 
           <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="inline-flex w-fit cursor-pointer items-center justify-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-zinc-900 hover:opacity-90 disabled:opacity-60">
+            <label
+              className={`inline-flex h-9 w-fit cursor-pointer items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 ${
+                loading ? "pointer-events-none opacity-50" : ""
+              }`}
+            >
               <input
                 type="file"
                 accept=".pdf"
@@ -232,32 +226,28 @@ export default function IngestPage() {
               ＋ ファイルを選択（複数可）
             </label>
 
-            <div className="text-xs text-zinc-400">
+            <div className="text-xs text-muted-foreground">
               {loading ? "処理中…" : "PDFのみ対応"}
             </div>
           </div>
 
           {status && (
-            <div className="mt-4 rounded-2xl border border-white/10 bg-black/30 p-3 text-sm text-zinc-200">
+            <div className="mt-4 rounded-2xl border border-border bg-muted p-3 text-sm text-foreground">
               {status}
             </div>
           )}
         </section>
 
-        <section className="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
+        <section className="rounded-3xl border border-border bg-card p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold">ファイル一覧</div>
-            <button
-              onClick={fetchFiles}
-              disabled={loading}
-              className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs hover:bg-white/10 disabled:opacity-60"
-            >
+            <div className="text-sm font-semibold text-foreground">ファイル一覧</div>
+            <Button variant="outline" size="sm" onClick={fetchFiles} disabled={loading} className="text-xs">
               {loading ? "更新中…" : "更新"}
-            </button>
+            </Button>
           </div>
 
           {files.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-black/30 p-6 text-sm text-zinc-400">
+            <div className="rounded-2xl border border-border bg-muted p-6 text-sm text-muted-foreground">
               まだファイルがありません
             </div>
           ) : (
@@ -265,15 +255,15 @@ export default function IngestPage() {
               {files.map((file) => (
                 <div
                   key={file.id}
-                  className="rounded-2xl border border-white/10 bg-black/30 p-4 hover:bg-black/40"
+                  className="rounded-2xl border border-border bg-muted p-4 hover:bg-accent/50"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <div className="truncate text-sm font-semibold">{file.filename}</div>
-                        <span className="text-xs text-zinc-500">#{file.id}</span>
+                        <div className="truncate text-sm font-semibold text-foreground">{file.filename}</div>
+                        <span className="text-xs text-muted-foreground">#{file.id}</span>
                       </div>
-                      <div className="mt-1 text-xs text-zinc-400">
+                      <div className="mt-1 text-xs text-muted-foreground">
                         {file.ingested_chunks != null && file.status === "done" && (
                           <>・{file.ingested_chunks} チャンク保存済み</>
                         )}
@@ -285,24 +275,28 @@ export default function IngestPage() {
                       <StatusBadge status={file.status} />
 
                       {(file.status === "done" || file.status === "error") && (
-                        <button
+                        <Button
+                          variant="outline"
+                          size="sm"
                           onClick={() => reingestFile(file.id)}
                           disabled={loading}
-                          className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs hover:bg-white/10 disabled:opacity-60"
+                          className="text-xs"
                           title="再取り込み"
                         >
                           🔄 再取込
-                        </button>
+                        </Button>
                       )}
 
-                      <button
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => deleteFile(file.id)}
                         disabled={loading}
-                        className="rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs text-blue-200 hover:bg-blue-500/15 disabled:opacity-60"
+                        className="text-xs text-destructive hover:text-destructive"
                         title="削除"
                       >
                         🗑 削除
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -311,8 +305,7 @@ export default function IngestPage() {
           )}
         </section>
 
-        <div className="mt-8 text-center text-xs text-zinc-500">Ingest Dashboard</div>
-      </div>
+      <div className="mt-8 text-center text-xs text-muted-foreground">Ingest Dashboard</div>
     </div>
   );
 }

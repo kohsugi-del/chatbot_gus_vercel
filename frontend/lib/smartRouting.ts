@@ -9,6 +9,9 @@ export type RagChunk = {
 
 const EXCHANGE_RATE = 155;
 
+// 月間APIコストの予算（円）。ダッシュボードの予算使用率表示にも使用
+export const MONTHLY_BUDGET_JPY = 35_000;
+
 const MODEL_PRICES: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
   // Google
   "gemini-2.0-flash-001":       { input: 0.10,  output: 0.40,  cacheRead: 0.025,  cacheWrite: 0.0  },
@@ -42,9 +45,9 @@ export function calcComplexityScore(
   return Math.min(score, 1.0);
 }
 
-// complexity_score > 0.7 → Flash、それ以外 → Flash-Lite
+// complexity_score > 0.5 → Flash、それ以外 → Flash-Lite
 export function selectModel(complexityScore: number): string {
-  return complexityScore > 0.7 ? "gemini-2.5-flash" : "gemini-2.5-flash-lite";
+  return complexityScore > 0.5 ? "gemini-2.5-flash" : "gemini-2.5-flash-lite";
 }
 
 // 推定コスト計算（円）。cacheWriteTokens は省略可（省略時 0）

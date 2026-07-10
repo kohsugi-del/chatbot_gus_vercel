@@ -49,13 +49,14 @@ describe("calcComplexityScore", () => {
 // ── selectModel ────────────────────────────────────────────────
 
 describe("selectModel", () => {
-  it("complexity_score > 0.7 → Flash", () => {
+  it("complexity_score > 0.5 → Flash", () => {
+    expect(selectModel(0.6)).toBe("gemini-2.5-flash");
     expect(selectModel(0.8)).toBe("gemini-2.5-flash");
     expect(selectModel(1.0)).toBe("gemini-2.5-flash");
   });
 
-  it("complexity_score <= 0.7 → Flash-Lite", () => {
-    expect(selectModel(0.7)).toBe("gemini-2.5-flash-lite");
+  it("complexity_score <= 0.5 → Flash-Lite", () => {
+    expect(selectModel(0.5)).toBe("gemini-2.5-flash-lite");
     expect(selectModel(0.0)).toBe("gemini-2.5-flash-lite");
     expect(selectModel(0.4)).toBe("gemini-2.5-flash-lite");
   });

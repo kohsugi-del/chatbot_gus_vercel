@@ -16,6 +16,7 @@ import { TopQuestionsList, TopDocsList, UnusedDocsList } from "@/components/gas-
 import { SavingsWidget } from "@/components/gas-dashboard/savings-widget"
 import { ModeHistoryList } from "@/components/gas-dashboard/mode-history"
 import { SmartRoutingKpiCards, type SmartRoutingStats } from "@/components/gas-dashboard/smart-routing-kpi-cards"
+import { BudgetUsageCard } from "@/components/gas-dashboard/budget-usage-card"
 
 const YEARS = [2024, 2025, 2026]
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
@@ -42,6 +43,8 @@ type StatsResponse = {
   model_usage?: { flashLite: number; flash: number; flashLiteRate: number }
   cache_stats?: { hitCount: number; hitRate: number; savedTokens: number }
   cost_stats?: { totalCostJpy: number; avgCostPerChat: number; estimatedMonthly: number }
+  input_method_stats?: { voice: number; text: number; voiceRate: number }
+  budget_usage_rate?: number
 }
 
 function mapToProps(res: StatsResponse, year: number, month: number): GasDashboardProps {
@@ -106,7 +109,9 @@ export default function DashboardPage() {
   const [selectedYear, setSelectedYear] = useState(now.getFullYear())
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
   const [data, setData] = useState<GasDashboardProps | null>(null)
+  const [rawStats, setRawStats] = useState<StatsResponse | null>(null)
   const [smartStats, setSmartStats] = useState<SmartRoutingStats | null>(null)
+  const [budgetUsageRate, setBudgetUsageRate] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -119,15 +124,18 @@ export default function DashboardPage() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const json = await res.json() as StatsResponse
         setData(mapToProps(json, selectedYear, selectedMonth))
-        if (json.model_usage && json.cache_stats && json.cost_stats) {
+        setRawStats(json)
+        if (json.model_usage && json.cache_stats && json.cost_stats && json.input_method_stats) {
           setSmartStats({
             modelUsage: json.model_usage,
             cacheStats: json.cache_stats,
             costStats: json.cost_stats,
+            inputMethodStats: json.input_method_stats,
           })
         } else {
           setSmartStats(null)
         }
+        setBudgetUsageRate(json.budget_usage_rate ?? null)
       } catch (err: unknown) {
         setError(err instanceof Error ? err.message : String(err))
       } finally {
@@ -137,26 +145,117 @@ export default function DashboardPage() {
     void load()
   }, [selectedYear, selectedMonth])
 
+  const csvEscape = (v: string | number): string => {
+    const s = String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+
   const handleCsvDownload = () => {
-    if (!data) return
+    if (!data || !rawStats) return
+    const s = rawStats
+    const DOW = ["日", "月", "火", "水", "木", "金", "土"]
+
+    // ダッシュボード上の表示順（上から下）に合わせて並べる
     const csvRows: (string | number)[][] = [
       ["項目", "値"],
       ["対象年月", `${selectedYear}年${selectedMonth}月`],
-      ["総会話数", data.monthlyStats.totalConversations],
-      ["AI解決件数", data.monthlyStats.resolvedCount],
-      ["電話誘導率", `${data.monthlyStats.escalationRate}%`],
+      [],
+      ["■ サマリー"],
+      ["総会話数", s.summary.total_count],
+      ["電話誘導件数", s.summary.escalated_count],
+      ["AI解決件数", s.summary.resolved_count],
+      ["解決率(%)", s.summary.resolution_rate],
+      ["電話誘導率(%)", s.summary.escalation_rate],
       ["緊急ワード検知件数", data.monthlyStats.emergencyKeywordCount],
-      [],
-      ["トピック分布"],
-      ...data.topicDistribution.map((t) => [t.label, `${t.value}%`]),
-      [],
-      ["よくある質問TOP8"],
-      ...data.topQuestions.map((q, i) => [`${i + 1}. ${q.content}`, q.count]),
-      [],
-      ["参照ドキュメントTOP5"],
-      ...data.topDocs.map((d, i) => [`${i + 1}. ${d.title}`, d.referenceCount]),
     ]
-    const csvContent = csvRows.map((row) => row.join(",")).join("\n")
+
+    if (s.model_usage) {
+      csvRows.push(
+        [],
+        ["■ モデル使用比率"],
+        ["Flash-Lite件数", s.model_usage.flashLite],
+        ["Flash件数", s.model_usage.flash],
+        ["Flash-Lite比率(%)", s.model_usage.flashLiteRate],
+      )
+    }
+    if (s.cache_stats) {
+      csvRows.push(
+        [],
+        ["■ キャッシュ統計"],
+        ["ヒット回数", s.cache_stats.hitCount],
+        ["ヒット率(%)", s.cache_stats.hitRate],
+        ["削減トークン数", s.cache_stats.savedTokens],
+      )
+    }
+    if (s.cost_stats) {
+      csvRows.push(
+        [],
+        ["■ APIコスト統計"],
+        ["当月コスト(円)", s.cost_stats.totalCostJpy],
+        ["1会話あたり平均コスト(円)", s.cost_stats.avgCostPerChat],
+        ["月末推定コスト(円)", s.cost_stats.estimatedMonthly],
+      )
+    }
+    if (s.budget_usage_rate !== undefined) {
+      csvRows.push(
+        [],
+        ["■ 月間予算使用率"],
+        ["予算使用率(%)", s.budget_usage_rate],
+      )
+    }
+    if (s.input_method_stats) {
+      csvRows.push(
+        [],
+        ["■ 音声 vs テキスト入力比率"],
+        ["音声入力件数", s.input_method_stats.voice],
+        ["テキスト入力件数", s.input_method_stats.text],
+        ["音声入力比率(%)", s.input_method_stats.voiceRate],
+      )
+    }
+
+    csvRows.push(
+      [],
+      ["■ 月別対話件数推移"],
+      ["年月", "件数"],
+      ...s.monthly_trend.map((t) => [t.month, t.count]),
+      [],
+      ["■ 時間帯・曜日別ヒートマップ"],
+      ["曜日", "時間帯", "件数"],
+      ...s.heatmap
+        .slice()
+        .sort((a, b) => a.day_of_week - b.day_of_week || a.hour - b.hour)
+        .map((h) => [DOW[h.day_of_week] ?? String(h.day_of_week), `${h.hour}時`, h.count]),
+      [],
+      ["■ 緊急ワード検知件数（キーワード別）"],
+      ["キーワード", "件数"],
+      ...s.keyword_stats.map((k) => [k.keyword, k.count]),
+      [],
+      ["■ 緊急ワード検知件数（日別推移）"],
+      ["日付", "件数"],
+      ...s.daily_emergency_trend.map((d) => [d.date, d.count]),
+      [],
+      ["■ カテゴリ別問い合わせ分布"],
+      ["カテゴリ", "件数", "割合(%)"],
+      ...s.category_distribution.map((c) => [c.category, c.count, c.percentage]),
+      [],
+      ["■ よく聞かれた質問ランキング（上位20件）"],
+      ["順位", "質問内容", "件数"],
+      ...s.top_questions.map((q, i) => [i + 1, q.content, q.count]),
+      [],
+      ["■ 参照ドキュメントランキング"],
+      ["順位", "タイトル", "URL", "参照回数", "最終参照日時"],
+      ...s.top_docs.map((d, i) => [i + 1, d.title ?? "(無題)", d.source_url ?? "", d.reference_count, d.last_referenced_at]),
+      [],
+      ["■ 未参照ドキュメント一覧"],
+      ["タイトル", "URL", "最終更新日時"],
+      ...s.unused_docs.map((d) => [d.title ?? "(無題)", d.url ?? d.source_url ?? "", d.updated_at ?? d.last_crawled_at ?? ""]),
+      [],
+      ["■ モード履歴（注意報・緊急モード）"],
+      ["モード", "開始日時", "終了日時"],
+      ...s.mode_history.map((m) => [m.mode, m.started_at, m.ended_at ?? "継続中"]),
+    )
+
+    const csvContent = csvRows.map((row) => row.map(csvEscape).join(",")).join("\n")
     const blob = new Blob(["﻿" + csvContent], { type: "text/csv;charset=utf-8;" })
     const url = URL.createObjectURL(blob)
     const a = document.createElement("a")
@@ -167,15 +266,14 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-xl font-bold text-foreground tracking-tight">AIチャットボット運用ダッシュボード</h1>
             <p className="mt-1 text-sm text-muted-foreground">ガス会社向け月次レポート</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="gap-1 text-xs">
               <Building2 className="h-3 w-3" />
               旭川ガス
@@ -207,7 +305,7 @@ export default function DashboardPage() {
               size="sm"
               className="h-7 gap-1.5 text-xs"
               onClick={handleCsvDownload}
-              disabled={!data || loading}
+              disabled={!data || !rawStats || loading}
             >
               <Download className="h-3.5 w-3.5" />
               CSV
@@ -245,6 +343,10 @@ export default function DashboardPage() {
               <SmartRoutingKpiCards stats={smartStats} />
             )}
 
+            {budgetUsageRate !== null && (
+              <BudgetUsageCard rate={budgetUsageRate} />
+            )}
+
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
               <ConversationTrendChart data={data.conversationTrend} />
               <HeatmapChart data={data.heatmapData} />
@@ -271,8 +373,7 @@ export default function DashboardPage() {
           <p className="text-center text-xs text-muted-foreground">
             {`${selectedYear}年${selectedMonth}月度 月次運用レポート | 旭川ガス AIチャットボット | CONFIDENTIAL`}
           </p>
-        </footer>
-      </div>
+      </footer>
     </div>
   )
 }
