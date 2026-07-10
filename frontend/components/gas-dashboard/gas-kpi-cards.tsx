@@ -44,32 +44,32 @@ export function GasKpiCards({ data }: GasKpiCardsProps) {
   ]
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+    <>
       {cards.map((card) => (
         <Card key={card.title} className={`border-border/60 ${card.highlight ? "bg-blue-500/5" : ""}`}>
-          <CardContent className="p-5">
+          <CardContent className="p-6">
             <div className="flex items-start justify-between">
-              <div className="flex flex-col gap-1">
-                <span className="text-xs font-medium text-muted-foreground tracking-wide">{card.title}</span>
-                <div className="flex items-baseline gap-1">
-                  <span className={`text-2xl font-bold tracking-tight ${card.highlight ? "text-blue-600" : "text-foreground"}`}>
+              <div className="flex flex-col gap-1.5">
+                <span className="text-sm font-medium text-muted-foreground tracking-wide">{card.title}</span>
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`text-3xl font-bold tracking-tight ${card.highlight ? "text-blue-600" : "text-foreground"}`}>
                     {card.value}
                   </span>
-                  <span className="text-sm font-medium text-muted-foreground">{card.unit}</span>
+                  <span className="text-base font-medium text-muted-foreground">{card.unit}</span>
                 </div>
               </div>
-              <div className={`rounded-lg p-2.5 ${card.highlight ? "bg-blue-500/10" : "bg-primary/10"}`}>
-                <card.icon className={`h-5 w-5 ${card.highlight ? "text-blue-600" : "text-primary"}`} />
+              <div className={`rounded-lg p-3 ${card.highlight ? "bg-blue-500/10" : "bg-primary/10"}`}>
+                <card.icon className={`h-6 w-6 ${card.highlight ? "text-blue-600" : "text-primary"}`} />
               </div>
             </div>
-            <div className="mt-3 flex items-center gap-1.5">
-              <span className={`text-xs font-semibold ${card.changePositive ? "text-emerald-600" : "text-slate-500"}`}>
+            <div className="mt-4 flex items-center gap-1.5">
+              <span className={`text-sm font-semibold ${card.changePositive ? "text-emerald-600" : "text-slate-500"}`}>
                 {card.change}
               </span>
             </div>
           </CardContent>
         </Card>
       ))}
-    </div>
+    </>
   )
 }

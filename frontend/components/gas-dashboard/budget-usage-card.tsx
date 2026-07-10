@@ -27,34 +27,32 @@ export function BudgetUsageCard({ rate }: { rate: number }) {
     "bg-primary"
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <Card className={`border-border/60 ${bg}`}>
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between">
-            <div className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-muted-foreground tracking-wide">月間予算使用率（推定）</span>
-              <div className="flex items-baseline gap-1">
-                <span className={`text-2xl font-bold tracking-tight ${color}`}>
-                  {rate.toFixed(1)}
-                </span>
-                <span className="text-sm font-medium text-muted-foreground">%</span>
-              </div>
-            </div>
-            <div className={`rounded-lg p-2.5 ${iconBg}`}>
-              <CircleDollarSign className={`h-5 w-5 ${iconColor}`} />
+    <Card className={`border-border/60 ${bg}`}>
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-muted-foreground tracking-wide">月間予算使用率（推定）</span>
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-3xl font-bold tracking-tight ${color}`}>
+                {rate.toFixed(1)}
+              </span>
+              <span className="text-base font-medium text-muted-foreground">%</span>
             </div>
           </div>
-          <div className="mt-3">
-            <div className="h-2 overflow-hidden rounded-full bg-muted">
-              <div
-                className={`h-full ${barColor} transition-all`}
-                style={{ width: `${Math.min(rate, 100)}%` }}
-              />
-            </div>
+          <div className={`rounded-lg p-3 ${iconBg}`}>
+            <CircleDollarSign className={`h-6 w-6 ${iconColor}`} />
           </div>
-          <p className="mt-2 text-xs text-muted-foreground">月末時点で見込まれる予算消化率です</p>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+        <div className="mt-4">
+          <div className="h-2 overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full ${barColor} transition-all`}
+              style={{ width: `${Math.min(rate, 100)}%` }}
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-sm text-muted-foreground">月末時点で見込まれる予算消化率です</p>
+      </CardContent>
+    </Card>
   )
 }

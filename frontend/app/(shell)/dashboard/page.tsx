@@ -340,21 +340,14 @@ export default function DashboardPage() {
         {/* Main Content */}
         {!loading && data && (
           <div className="mt-6 flex flex-col gap-5">
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-              <div className="sm:col-span-3">
-                <GasKpiCards data={data} />
-              </div>
-              <div>
-                <PhoneEscalationCard data={data} />
-              </div>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <GasKpiCards data={data} />
+              <PhoneEscalationCard data={data} />
+              {budgetUsageRate !== null && <BudgetUsageCard rate={budgetUsageRate} />}
             </div>
 
             {smartStats && (
               <SmartRoutingKpiCards stats={smartStats} />
-            )}
-
-            {budgetUsageRate !== null && (
-              <BudgetUsageCard rate={budgetUsageRate} />
             )}
 
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
