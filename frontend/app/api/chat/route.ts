@@ -333,7 +333,11 @@ export async function POST(req: NextRequest) {
     console.log(`[Cost] estimated_cost_jpy: ${estimatedCostJpy}`);
     console.log(`[DEBUG] rawAnswer length: ${rawAnswer.length}, preview: "${rawAnswer.slice(0, 100)}"`);
 
-    const answer = rawAnswer.replace(/\[#\d+\]/g, "").replace(/\s{2,}/g, " ").trim();
+    const answer = rawAnswer
+      .replace(/\[#\d+\]/g, "")
+      .replace(/[^\S\n]{2,}/g, " ") // 改行以外の連続空白（スペース・タブ）だけを1個に整形
+      .replace(/\n{3,}/g, "\n\n")   // 3行以上の空行は2行までに圧縮
+      .trim();
 
     // ── 7) ログ書き込み ───────────────────────────────────────
     let conversationId = body.conversation_id ?? null;
