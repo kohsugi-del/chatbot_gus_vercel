@@ -7,6 +7,7 @@
 import OpenAI from "openai";
 import { createClient } from "@supabase/supabase-js";
 import { applyAutocut } from "../lib/autocut.ts";
+import { fuseHybridResults } from "../lib/hybridSearch.ts";
 
 function env(name) {
   const v = process.env[name];
@@ -95,6 +96,40 @@ async function searchSupabase(query, topK) {
     .filter((r) => r.source.length > 0);
 }
 
+// route.ts の searchSupabase のキーワード側と同じロジックを最小限で複製
+async function searchKeyword(query, topK) {
+  const { data, error } = await supabase.rpc("match_documents_keyword", {
+    query_text: query,
+    match_count: topK,
+  });
+  if (error) {
+    console.warn(`[hybrid] match_documents_keyword failed（マイグレーション未適用の可能性）: ${error.message}`);
+    return [];
+  }
+
+  const rows = data ?? [];
+  const ids = rows.map((r) => String(r.id ?? "")).filter(Boolean);
+  let sourceUrlMap = {};
+  if (ids.length > 0) {
+    const { data: docData } = await supabase.from("documents").select("id, url, source_url").in("id", ids);
+    sourceUrlMap = Object.fromEntries((docData ?? []).map((d) => [String(d.id), String(d.url || d.source_url || "")]));
+  }
+
+  return rows
+    .map((row) => {
+      const rowId = String(row.id ?? "");
+      const source =
+        String(row.source || row.url || row.source_url || row.path || "").trim() || sourceUrlMap[rowId] || "";
+      return {
+        id: rowId,
+        title: String(row.title ?? source).trim(),
+        source,
+        similarity: Number(row.keyword_similarity ?? 0),
+      };
+    })
+    .filter((r) => r.source.length > 0);
+}
+
 function evaluate(results, expected) {
   const idx = results.findIndex((r) => r.source.includes(expected));
   const rank = idx === -1 ? null : idx + 1;
@@ -129,29 +164,53 @@ async function main() {
   for (const { query, expected } of TEST_SET) {
     const raw = await searchSupabase(query, TOP_K);
     const cut = applyAutocut(raw);
+    const keyword = await searchKeyword(query, TOP_K);
+    const hybrid = fuseHybridResults(raw, keyword).slice(0, TOP_K);
+    const hybridCut = applyAutocut(hybrid);
 
     const rawEval = evaluate(raw, expected);
     const cutEval = evaluate(cut, expected);
+    const hybridEval = evaluate(hybrid, expected);
+    const hybridCutEval = evaluate(hybridCut, expected);
     const regression = rawEval.rank !== null && cutEval.rank === null;
+    const hybridRegression = rawEval.rank !== null && hybridCutEval.rank === null;
 
-    perQuery.push({ query, expected, rawEval, cutEval, rawCount: raw.length, cutCount: cut.length, regression });
+    perQuery.push({
+      query,
+      expected,
+      rawEval,
+      cutEval,
+      hybridEval,
+      hybridCutEval,
+      rawCount: raw.length,
+      cutCount: cut.length,
+      hybridCutCount: hybridCut.length,
+      regression,
+      hybridRegression,
+    });
 
     console.log(
-      `[${regression ? "REGRESSION" : "ok"}] "${query}" → 期待:${expected} / raw rank=${rawEval.rank ?? "圏外"} (${raw.length}件) / cut rank=${cutEval.rank ?? "圏外"} (${cut.length}件, ${raw.length - cut.length}件カット)`
+      `[${regression || hybridRegression ? "REGRESSION" : "ok"}] "${query}" → 期待:${expected} / raw rank=${rawEval.rank ?? "圏外"} / cut rank=${cutEval.rank ?? "圏外"} / hybrid rank=${hybridEval.rank ?? "圏外"} / hybrid+cut rank=${hybridCutEval.rank ?? "圏外"} (${keyword.length}件keywordヒット)`
     );
   }
 
   const rawSummary = summarize(perQuery.map((p) => p.rawEval));
   const cutSummary = summarize(perQuery.map((p) => p.cutEval));
+  const hybridSummary = summarize(perQuery.map((p) => p.hybridEval));
+  const hybridCutSummary = summarize(perQuery.map((p) => p.hybridCutEval));
   const regressions = perQuery.filter((p) => p.regression);
+  const hybridRegressions = perQuery.filter((p) => p.hybridRegression);
   const avgCutRatio =
     perQuery.reduce((a, p) => a + (p.rawCount - p.cutCount) / p.rawCount, 0) / perQuery.length;
 
   console.log("\n── サマリー ─────────────────────────");
-  console.log(`raw : top1=${(rawSummary.top1Rate * 100).toFixed(0)}% top3=${(rawSummary.top3Rate * 100).toFixed(0)}% top5=${(rawSummary.top5Rate * 100).toFixed(0)}% MRR=${rawSummary.mrr.toFixed(3)}`);
-  console.log(`cut : top1=${(cutSummary.top1Rate * 100).toFixed(0)}% top3=${(cutSummary.top3Rate * 100).toFixed(0)}% top5=${(cutSummary.top5Rate * 100).toFixed(0)}% MRR=${cutSummary.mrr.toFixed(3)}`);
-  console.log(`平均カット率: ${(avgCutRatio * 100).toFixed(1)}%`);
-  console.log(`回帰（カットで正解が消えたクエリ）: ${regressions.length}件${regressions.length ? " → " + regressions.map((r) => r.query).join(", ") : ""}`);
+  console.log(`raw       : top1=${(rawSummary.top1Rate * 100).toFixed(0)}% top3=${(rawSummary.top3Rate * 100).toFixed(0)}% top5=${(rawSummary.top5Rate * 100).toFixed(0)}% MRR=${rawSummary.mrr.toFixed(3)}`);
+  console.log(`cut       : top1=${(cutSummary.top1Rate * 100).toFixed(0)}% top3=${(cutSummary.top3Rate * 100).toFixed(0)}% top5=${(cutSummary.top5Rate * 100).toFixed(0)}% MRR=${cutSummary.mrr.toFixed(3)}`);
+  console.log(`hybrid    : top1=${(hybridSummary.top1Rate * 100).toFixed(0)}% top3=${(hybridSummary.top3Rate * 100).toFixed(0)}% top5=${(hybridSummary.top5Rate * 100).toFixed(0)}% MRR=${hybridSummary.mrr.toFixed(3)}`);
+  console.log(`hybrid+cut: top1=${(hybridCutSummary.top1Rate * 100).toFixed(0)}% top3=${(hybridCutSummary.top3Rate * 100).toFixed(0)}% top5=${(hybridCutSummary.top5Rate * 100).toFixed(0)}% MRR=${hybridCutSummary.mrr.toFixed(3)}`);
+  console.log(`平均カット率(cut): ${(avgCutRatio * 100).toFixed(1)}%`);
+  console.log(`回帰(cut)   : ${regressions.length}件${regressions.length ? " → " + regressions.map((r) => r.query).join(", ") : ""}`);
+  console.log(`回帰(hybrid+cut): ${hybridRegressions.length}件${hybridRegressions.length ? " → " + hybridRegressions.map((r) => r.query).join(", ") : ""}`);
 
   const fs = await import("node:fs");
   const path = await import("node:path");
@@ -159,7 +218,24 @@ async function main() {
   const dir = path.join(path.dirname(url.fileURLToPath(import.meta.url)), "eval-results");
   fs.mkdirSync(dir, { recursive: true });
   const outPath = path.join(dir, `eval-${new Date().toISOString().replace(/[:.]/g, "-")}.json`);
-  fs.writeFileSync(outPath, JSON.stringify({ topK: TOP_K, rawSummary, cutSummary, avgCutRatio, regressions: regressions.map((r) => r.query), perQuery }, null, 2));
+  fs.writeFileSync(
+    outPath,
+    JSON.stringify(
+      {
+        topK: TOP_K,
+        rawSummary,
+        cutSummary,
+        hybridSummary,
+        hybridCutSummary,
+        avgCutRatio,
+        regressions: regressions.map((r) => r.query),
+        hybridRegressions: hybridRegressions.map((r) => r.query),
+        perQuery,
+      },
+      null,
+      2
+    )
+  );
   console.log(`\n結果を保存しました: ${outPath}`);
 }
 

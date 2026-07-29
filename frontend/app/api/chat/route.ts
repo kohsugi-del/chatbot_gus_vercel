@@ -17,6 +17,7 @@ import {
 import { getClientConfig } from "@/lib/getClientConfig";
 import { calcComplexityScore, estimateCostJpy, getSmartRoutingThreshold } from "@/lib/smartRouting";
 import { applyAutocut } from "@/lib/autocut";
+import { fuseHybridResults } from "@/lib/hybridSearch";
 import { getSystemPromptTemplate, renderSystemPromptTemplate } from "@/lib/systemPrompt";
 import { getEmergencyKeywords } from "@/lib/emergencyKeywords";
 import { buildModel, getModelId } from "@/lib/aiProvider";
@@ -70,6 +71,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
 });
 
 const RPC_NAME = env("SUPABASE_MATCH_RPC") ?? "match_documents";
+const KEYWORD_RPC_NAME = env("SUPABASE_KEYWORD_RPC") ?? "match_documents_keyword";
 const MATCH_THRESHOLD = Number(env("SUPABASE_MATCH_THRESHOLD") ?? "0");
 
 // ============================================================
@@ -93,43 +95,11 @@ type Retrieved = {
   category: string[];
 };
 
-// モードに応じてcategoryフィルタを切り替えてベクター検索
-async function searchSupabase(
-  query: string,
-  topK: number,
-  mode: ConversationMode
-): Promise<Retrieved[]> {
-  const qEmb = await embedQuery(query);
-
-  const args: Record<string, unknown> = {
-    query_embedding: qEmb,
-    match_count: topK,
-  };
-  if (MATCH_THRESHOLD > 0) args.match_threshold = MATCH_THRESHOLD;
-
-  // emergencyモードは緊急カテゴリのドキュメントのみ検索
-  if (mode === "emergency") {
-    args.filter_category = "emergency";
-  }
-
-  const { data, error } = await supabase.rpc(RPC_NAME, args);
-  if (error) throw new Error(`supabase.rpc(${RPC_NAME}) failed: ${error.message}`);
-
-  const rows = (data ?? []) as Record<string, unknown>[];
-
-  // RPC が source_url を返さない場合、documents テーブルから補完する
-  const ids = rows.map((r) => String(r.id ?? "")).filter(Boolean);
-  let sourceUrlMap: Record<string, string> = {};
-  if (ids.length > 0) {
-    const { data: docData } = await supabase
-      .from("documents")
-      .select("id, url, source_url")
-      .in("id", ids);
-    sourceUrlMap = Object.fromEntries(
-      (docData ?? []).map((d) => [String(d.id), String(d.url || d.source_url || "")])
-    );
-  }
-
+function mapRows(
+  rows: Record<string, unknown>[],
+  sourceUrlMap: Record<string, string>,
+  simKey: "similarity" | "keyword_similarity"
+): Retrieved[] {
   return rows
     .map((row) => {
       const text = String(
@@ -143,11 +113,76 @@ async function searchSupabase(
         ""
       );
       const title = String(row.title ?? source).trim();
-      const similarity = Number(row.similarity ?? row.score ?? 0);
+      const similarity = Number(row[simKey] ?? row.score ?? 0);
       const category = Array.isArray(row.category) ? row.category.map(String) : [];
       return { id: rowId, text, source, title, similarity, category };
     })
     .filter((r) => r.text.length > 0);
+}
+
+// モードに応じてcategoryフィルタを切り替え、ベクター検索とキーワード（trigram）検索を
+// 並列実行してハイブリッドに統合する
+async function searchSupabase(
+  query: string,
+  topK: number,
+  mode: ConversationMode
+): Promise<Retrieved[]> {
+  const qEmb = await embedQuery(query);
+
+  const vectorArgs: Record<string, unknown> = {
+    query_embedding: qEmb,
+    match_count: topK,
+  };
+  if (MATCH_THRESHOLD > 0) vectorArgs.match_threshold = MATCH_THRESHOLD;
+
+  const keywordArgs: Record<string, unknown> = {
+    query_text: query,
+    match_count: topK,
+  };
+
+  // emergencyモードは緊急カテゴリのドキュメントのみ検索
+  if (mode === "emergency") {
+    vectorArgs.filter_category = "emergency";
+    keywordArgs.filter_category = "emergency";
+  }
+
+  const [vectorRes, keywordRes] = await Promise.all([
+    supabase.rpc(RPC_NAME, vectorArgs),
+    supabase.rpc(KEYWORD_RPC_NAME, keywordArgs),
+  ]);
+
+  if (vectorRes.error) throw new Error(`supabase.rpc(${RPC_NAME}) failed: ${vectorRes.error.message}`);
+
+  // キーワードRPC（match_documents_keyword）はマイグレーション未適用でも
+  // チャット自体が壊れないよう、失敗時はベクター検索のみにフォールバックする
+  if (keywordRes.error) {
+    console.warn(`[hybrid] ${KEYWORD_RPC_NAME} failed, falling back to vector-only:`, keywordRes.error.message);
+  }
+
+  const vectorRows = (vectorRes.data ?? []) as Record<string, unknown>[];
+  const keywordRows = keywordRes.error ? [] : ((keywordRes.data ?? []) as Record<string, unknown>[]);
+
+  // RPC が source_url を返さない場合、documents テーブルから補完する（両方の結果の和集合で1回）
+  const ids = [
+    ...new Set(
+      [...vectorRows, ...keywordRows].map((r) => String(r.id ?? "")).filter(Boolean)
+    ),
+  ];
+  let sourceUrlMap: Record<string, string> = {};
+  if (ids.length > 0) {
+    const { data: docData } = await supabase
+      .from("documents")
+      .select("id, url, source_url")
+      .in("id", ids);
+    sourceUrlMap = Object.fromEntries(
+      (docData ?? []).map((d) => [String(d.id), String(d.url || d.source_url || "")])
+    );
+  }
+
+  const vectorRetrieved = mapRows(vectorRows, sourceUrlMap, "similarity");
+  const keywordRetrieved = mapRows(keywordRows, sourceUrlMap, "keyword_similarity");
+
+  return fuseHybridResults(vectorRetrieved, keywordRetrieved).slice(0, topK);
 }
 
 function lastUserFromHistory(body: ChatBody): string {
