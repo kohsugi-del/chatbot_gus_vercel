@@ -16,6 +16,7 @@ import {
 } from "@/lib/log";
 import { getClientConfig } from "@/lib/getClientConfig";
 import { calcComplexityScore, estimateCostJpy, getSmartRoutingThreshold } from "@/lib/smartRouting";
+import { applyAutocut } from "@/lib/autocut";
 import { getSystemPromptTemplate, renderSystemPromptTemplate } from "@/lib/systemPrompt";
 import { getEmergencyKeywords } from "@/lib/emergencyKeywords";
 import { buildModel, getModelId } from "@/lib/aiProvider";
@@ -260,7 +261,14 @@ export async function POST(req: NextRequest) {
     const config = await getClientConfig(clientId);
 
     // ── 1) RAG検索（モードによってカテゴリフィルタを切替）────
-    const retrieved = await searchSupabase(q, topK, mode);
+    const rawRetrieved = await searchSupabase(q, topK, mode);
+    // 外れ値除外（オートカット）: 類似度スコアの大きなギャップでノイズの多い末尾チャンクを打ち切る
+    const retrieved = applyAutocut(rawRetrieved);
+    if (retrieved.length !== rawRetrieved.length) {
+      console.log(
+        `[Autocut] ${rawRetrieved.length} → ${retrieved.length} chunks (top1 sim=${rawRetrieved[0]?.similarity.toFixed(3)})`
+      );
+    }
 
     // ── 2) 会話履歴 ──────────────────────────────────────────
     const history = normalizeHistory(body, 60);
@@ -364,9 +372,9 @@ export async function POST(req: NextRequest) {
         content: answer,
         confidenceScore,
         keywordMatched: matchedKeyword,
-        retrievedDocIds: retrieved.map((r) => r.id).filter(Boolean),
-        retrievedDocTitles: retrieved.map((r) => r.title),
-        retrievedDocSources: retrieved.map((r) => r.source),
+        retrievedDocIds: rawRetrieved.map((r) => r.id).filter(Boolean),
+        retrievedDocTitles: rawRetrieved.map((r) => r.title),
+        retrievedDocSources: rawRetrieved.map((r) => r.source),
         responseMs,
         unresolved: isLowConfidence && !matchedKeyword,
         modelUsed: modelId,
@@ -394,7 +402,9 @@ export async function POST(req: NextRequest) {
       answer,
       confidence_score: confidenceScore,
       // 有効なURLを持つ結果から重複排除・エリアフィルタ・最高類似度の1件のみ返す
-      retrieved_docs: retrieved
+      // （オートカット前のrawRetrievedを使用。カット後だけを対象にすると、上位がエリア不一致で
+      //   フィルタされた場合に本来引用できたはずのドキュメントが枯渇するおそれがあるため）
+      retrieved_docs: rawRetrieved
         .filter((r) => r.source.startsWith("http"))
         // エリア未指定 or 旭川指定のとき → 江別専用ページを除外
         .filter((r) => {
@@ -424,6 +434,7 @@ export async function POST(req: NextRequest) {
         top_k: topK,
         rpc: RPC_NAME,
         hits: retrieved.length,
+        raw_hits: rawRetrieved.length,
         mode,
         client_id: clientId,
         provider: "google",
