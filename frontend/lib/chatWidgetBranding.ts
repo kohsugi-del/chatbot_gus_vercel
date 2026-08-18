@@ -4,7 +4,7 @@
 // /embed は無認証の公開ページのため、ここで返す値は公開情報として扱うこと。
 
 export const DEFAULT_CHAT_ICON_URL = "/asahikawagus_chatoboto.png";
-export const DEFAULT_CHAT_WIDGET_TITLE = "旭川ガス　お客さまサポート";
+export const DEFAULT_CHAT_WIDGET_TITLE = "旭川ガス　個人サポート";
 
 const ICON_URL_KEY = "chat_icon_url";
 const TITLE_KEY = "chat_widget_title";

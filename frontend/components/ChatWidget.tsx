@@ -8,11 +8,14 @@ import {
 } from "@/lib/scenarios";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import type { InputMethod } from "@/types/log";
+import { parseCitationSegments } from "@/lib/parseCitations";
 
-type RetrievedDoc = {
+type Citation = {
+  number: number;
   id: string;
   title: string;
   source: string;
+  snippet?: string;
 };
 
 type FormUrl = {
@@ -26,7 +29,7 @@ type Msg = {
   messageId?: string;
   conversationId?: string;
   feedback?: 1 | -1;
-  retrievedDocs?: RetrievedDoc[];
+  citations?: Citation[];
   formUrls?: FormUrl[];
   noFeedback?: boolean;
 };
@@ -35,16 +38,9 @@ type ChatApiResponse = {
   answer?: string;
   message_id?: string;
   conversation_id?: string;
-  retrieved_docs?: RetrievedDoc[];
+  citations?: Citation[];
   form_urls?: FormUrl[];
   error?: string;
-};
-
-type EarthquakeStatus = {
-  is_active: boolean;
-  intensity: string | null;
-  area: string | null;
-  detected_at: string | null;
 };
 
 // ガス漏れ関連キーワード
@@ -59,7 +55,7 @@ type Props = {
 
 export default function ChatWidget({
   defaultOpen = false,
-  title = "旭川ガス　お客さまサポート",
+  title = "旭川ガス　個人サポート",
 }: Props) {
   // ===== Theme（ロボット色味に合わせた）=====
   const THEME = {
@@ -122,10 +118,35 @@ export default function ChatWidget({
   const [thinking, setThinking] = useState(false);
   const [sessionId] = useState(() => crypto.randomUUID());
   const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [earthquakeStatus, setEarthquakeStatus] = useState<EarthquakeStatus>({ is_active: false, intensity: null, area: null, detected_at: null });
   const [unresolvedCount, setUnresolvedCount] = useState(0);
   const [formUrls, setFormUrls] = useState<FormUrl[]>([]);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  // 出典チップのホバー吹き出し：スクロール領域内でも上下に見切れないよう、
+  // アンカーの画面上の位置から動的に上/下どちらに開くか決めてfixed配置する
+  const [citeTooltip, setCiteTooltip] = useState<{ x: number; y: number; openUp: boolean; citation: Citation } | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
+
+  const showCiteTooltip = (e: React.MouseEvent<HTMLElement>, citation: Citation) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const openUp = rect.top > 110; // 上に十分な余白があれば上向き、なければ下向き
+    setCiteTooltip({
+      x: Math.min(rect.left, window.innerWidth - 228),
+      y: openUp ? rect.top - 6 : rect.bottom + 6,
+      openUp,
+      citation,
+    });
+  };
+  const hideCiteTooltip = () => setCiteTooltip(null);
+
+  const copyMessage = async (index: number, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex((cur) => (cur === index ? null : cur)), 1500);
+    } catch {
+      // クリップボードAPIが使えない環境では何もしない
+    }
+  };
 
   // ── シナリオエンジン ──────────────────────────
   const [scenarioSelectorCategory, setScenarioSelectorCategory] = useState<string | null>(null);
@@ -146,37 +167,6 @@ export default function ChatWidget({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [open, messages, thinking]);
-
-  // 地震緊急ステータスを取得
-  const checkEarthquakeStatus = useCallback(async () => {
-    try {
-      const res = await fetch("/api/earthquake-status");
-      if (!res.ok) return;
-      const data = await res.json() as EarthquakeStatus;
-      setEarthquakeStatus(data);
-    } catch {
-      // ネットワークエラーは無視（緊急なしとして扱う）
-    }
-  }, []);
-
-  // マウント時から取得、以降30秒ごとにポーリング（開閉状態に関わらず継続）。
-  // バックエンドの検知（Vercel Cron・1分間隔）に対してフロントの反映が
-  // 遅れすぎないように、かつ「まだ一度も開いていない訪問者」でも緊急時に
-  // 自動展開できるよう、openの状態に関わらず常時ポーリングする
-  useEffect(() => {
-    checkEarthquakeStatus();
-    const timer = setInterval(checkEarthquakeStatus, 30 * 1000);
-    return () => clearInterval(timer);
-  }, [checkEarthquakeStatus]);
-
-  // 緊急モード検知：自動展開 + 親フレーム（FloatingChatLauncher）に通知
-  useEffect(() => {
-    if (!earthquakeStatus.is_active) return;
-    setOpen(true);
-    if (window.parent !== window) {
-      window.parent.postMessage({ type: "GUS_EMERGENCY_MODE" }, "*");
-    }
-  }, [earthquakeStatus.is_active]);
 
   // ── シナリオ操作 ──────────────────────────────
   const startScenario = (scenarioId: string) => {
@@ -319,7 +309,7 @@ export default function ChatWidget({
           messages: nextMessages,
           session_id: sessionId,
           category_id: cat.id,
-          mode: earthquakeStatus.is_active ? "emergency" : "normal",
+          mode: "normal",
         }),
       });
       const data = await res.json().catch(() => ({})) as ChatApiResponse;
@@ -328,7 +318,7 @@ export default function ChatWidget({
       setMessages((m) => [...m, {
         role: "assistant", content: String(answer),
         messageId: data?.message_id, conversationId: data?.conversation_id,
-        retrievedDocs: data?.retrieved_docs ?? [],
+        citations: data?.citations ?? [],
       }]);
     } catch (e: unknown) {
       setMessages((m) => [...m, { role: "assistant", content: `エラー：${e instanceof Error ? e.message : String(e)}` }]);
@@ -365,7 +355,7 @@ export default function ChatWidget({
           messages: nextMessages,
           session_id: sessionId,
           category_id: categoryId,
-          mode: earthquakeStatus.is_active ? "emergency" : "normal",
+          mode: "normal",
           scenario_context: scenarioCtx,
           input_method: inputMethod,
         }),
@@ -387,7 +377,7 @@ export default function ChatWidget({
           content: String(answer),
           messageId: data?.message_id,
           conversationId: data?.conversation_id,
-          retrievedDocs: data?.retrieved_docs ?? [],
+          citations: data?.citations ?? [],
         },
       ]);
     } catch (e: unknown) {
@@ -408,20 +398,18 @@ export default function ChatWidget({
   // ===== 共通スタイル（必要に応じて調整）=====
   const Z = 999999;
 
-  const isEmergency = earthquakeStatus.is_active;
-
   const widgetBox: React.CSSProperties = {
     position: "fixed",
-    right: isEmergency ? 0 : 16,
-    bottom: isEmergency ? 0 : 16,
-    width: isEmergency ? "100vw" : 420,
-    height: isEmergency ? "100vh" : 620,
+    right: 16,
+    bottom: 16,
+    width: 420,
+    height: 620,
     maxWidth: "100vw",
     maxHeight: "100vh",
-    borderRadius: isEmergency ? 0 : 18,
-    border: isEmergency ? "none" : `1px solid ${THEME.line}`,
+    borderRadius: 18,
+    border: `1px solid ${THEME.line}`,
     background: THEME.bg,
-    boxShadow: isEmergency ? "none" : THEME.shadow,
+    boxShadow: THEME.shadow,
     overflow: "hidden",
     zIndex: Z,
     display: "flex",
@@ -566,8 +554,82 @@ export default function ChatWidget({
     justifyContent: "center",
   };
 
+  // 出典番号 [1] を、ホバーでその抜粋だけを吹き出し表示する小さなインラインチップに変換
+  const renderCitationChip = (citation: Citation | undefined, number: number, key: string) => {
+    if (!citation) return null; // 対応する出典が見つからない場合は何も表示しない（安全側）
+    const clickable = citation.source?.startsWith("http");
+    const ChipTag = clickable ? "a" : "span";
+    return (
+      <ChipTag
+        key={key}
+        {...(clickable ? { href: citation.source, target: "_blank", rel: "noopener noreferrer" } : {})}
+        aria-label={citation.title || citation.source}
+        onMouseEnter={(e: React.MouseEvent<HTMLElement>) => showCiteTooltip(e, citation)}
+        onMouseLeave={hideCiteTooltip}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: 15,
+          height: 15,
+          borderRadius: "50%",
+          background: "rgba(46,197,244,0.55)",
+          color: "#fff",
+          fontSize: 9,
+          fontWeight: 800,
+          textDecoration: "none",
+          cursor: clickable ? "pointer" : "default",
+          verticalAlign: "super",
+          margin: "0 1px",
+        }}
+      >
+        {number}
+      </ChipTag>
+    );
+  };
+
+  const renderMessageContent = (content: string, citations?: Citation[]) => {
+    if (!citations || citations.length === 0) return content;
+    const byNumber = new Map(citations.map((c) => [c.number, c]));
+    return parseCitationSegments(content).map((seg, si) =>
+      seg.type === "text"
+        ? <span key={si}>{seg.value}</span>
+        : renderCitationChip(byNumber.get(seg.number), seg.number, String(si))
+    );
+  };
+
   return (
     <>
+      {/* 出典チップのホバー吹き出し：fixed配置でスクロール領域の上下端でも見切れない
+          （アンカー位置からJSで計算し、上に余白が無ければ下向きに開く） */}
+      {citeTooltip && (
+        <div
+          style={{
+            position: "fixed",
+            left: citeTooltip.x,
+            top: citeTooltip.openUp ? undefined : citeTooltip.y,
+            bottom: citeTooltip.openUp ? `calc(100vh - ${citeTooltip.y}px)` : undefined,
+            width: 220,
+            maxWidth: "calc(100vw - 16px)",
+            background: THEME.ink,
+            color: "#fff",
+            fontSize: 11,
+            lineHeight: 1.6,
+            padding: "8px 10px",
+            borderRadius: 10,
+            boxShadow: "0 10px 26px rgba(0,0,0,0.30)",
+            zIndex: Z + 1,
+            whiteSpace: "normal",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 10, opacity: 0.75, marginBottom: 3 }}>
+            {citeTooltip.citation.title || citeTooltip.citation.source}
+          </div>
+          <div>{citeTooltip.citation.snippet || "抜粋を取得できませんでした"}</div>
+        </div>
+      )}
+
       {/* 右下のロボットボタン */}
       {!open && (
         <button
@@ -649,28 +711,6 @@ export default function ChatWidget({
               </button>
             </div>
           </div>
-
-          {/* 地震緊急バナー（同意前後を問わず地震検知時に表示） */}
-          {earthquakeStatus.is_active && (
-            <div style={{
-              background: "#dc2626",
-              color: "#fff",
-              padding: "10px 14px",
-              fontSize: 12,
-              lineHeight: 1.6,
-              flexShrink: 0,
-            }}>
-              <div style={{ fontWeight: 800, fontSize: 13, marginBottom: 4 }}>
-                緊急地震速報：震度{earthquakeStatus.intensity}（{earthquakeStatus.area}）
-              </div>
-              <div>ガスメーターの遮断ボタンを押してガスを止めてください。</div>
-              <div>再点火は揺れが収まり安全を確認してから行ってください。</div>
-              <div style={{ marginTop: 6, fontWeight: 700 }}>
-                緊急ガス漏れ通報（24時間対応）<br />
-                旭川市：0166-45-2800 / 江別市：011-385-7913
-              </div>
-            </div>
-          )}
 
           {/* 同意画面 */}
           {!agreed && (
@@ -800,16 +840,11 @@ export default function ChatWidget({
 
             {messages.map((m, i) => {
               const isUser = m.role === "user";
-              // httpで始まるURLのみ・同一URL重複排除・最大2件
-              const urlDocs = !isUser
-                ? (m.retrievedDocs ?? [])
-                    .filter((d) => d.source?.startsWith("http"))
-                    .filter((d, i, arr) => arr.findIndex((x) => x.source === d.source) === i)
-                    .slice(0, 1)
-                : [];
               return (
                 <div key={i}>
-                  <div style={isUser ? userBubble : botBubble}>{m.content}</div>
+                  <div style={isUser ? userBubble : botBubble}>
+                    {isUser ? m.content : renderMessageContent(m.content, m.citations)}
+                  </div>
 
                   {/* エスカレーション：フォームURLボタン */}
                   {!isUser && m.formUrls && m.formUrls.length > 0 && (
@@ -840,71 +875,51 @@ export default function ChatWidget({
                     </div>
                   )}
 
-                  {/* 参考URLボタン */}
-                  {urlDocs.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 5, marginTop: 6, marginLeft: 2 }}>
-                      {urlDocs.map((doc) => (
-                        <a
-                          key={doc.id}
-                          href={doc.source}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            display: "inline-flex",
-                            alignItems: "center",
-                            gap: 5,
-                            fontSize: 11,
-                            padding: "5px 10px",
-                            borderRadius: 8,
-                            border: `1px solid rgba(46,197,244,0.40)`,
-                            background: "rgba(46,197,244,0.07)",
-                            color: "#0369a1",
-                            textDecoration: "none",
-                            fontWeight: 600,
-                            maxWidth: "100%",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          <span style={{ flexShrink: 0 }}>🔗</span>
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                            {doc.title || doc.source}
-                          </span>
-                          <span style={{ flexShrink: 0, opacity: 0.6 }}>↗</span>
-                        </a>
-                      ))}
-                    </div>
-                  )}
-
-                  {!isUser && !m.noFeedback && (
+                  {!isUser && (
                     <div style={{ display: "flex", gap: 6, marginTop: 4, marginLeft: 2 }}>
                       <button
-                        onClick={() => sendFeedback(i, 1)}
-                        disabled={!!m.feedback}
+                        onClick={() => copyMessage(i, m.content)}
                         style={{
                           fontSize: 11, padding: "3px 8px", borderRadius: 8, border: "1px solid",
-                          borderColor: m.feedback === 1 ? "rgba(16,185,129,0.5)" : "rgba(0,0,0,0.15)",
-                          background: m.feedback === 1 ? "rgba(16,185,129,0.15)" : "rgba(0,0,0,0.04)",
-                          color: m.feedback === 1 ? "#059669" : "#6b7280",
-                          cursor: m.feedback ? "default" : "pointer",
+                          borderColor: copiedIndex === i ? "rgba(16,185,129,0.5)" : "rgba(0,0,0,0.15)",
+                          background: copiedIndex === i ? "rgba(16,185,129,0.15)" : "rgba(0,0,0,0.04)",
+                          color: copiedIndex === i ? "#059669" : "#6b7280",
+                          cursor: "pointer",
                         }}
                       >
-                        👍 解決した
+                        {copiedIndex === i ? "✅ コピーしました" : "📋 コピー"}
                       </button>
-                      <button
-                        onClick={() => sendFeedback(i, -1)}
-                        disabled={!!m.feedback}
-                        style={{
-                          fontSize: 11, padding: "3px 8px", borderRadius: 8, border: "1px solid",
-                          borderColor: m.feedback === -1 ? "rgba(59,130,246,0.5)" : "rgba(0,0,0,0.15)",
-                          background: m.feedback === -1 ? "rgba(59,130,246,0.15)" : "rgba(0,0,0,0.04)",
-                          color: m.feedback === -1 ? "#2563eb" : "#6b7280",
-                          cursor: m.feedback ? "default" : "pointer",
-                        }}
-                      >
-                        👎 解決しなかった
-                      </button>
+
+                      {!m.noFeedback && (
+                        <>
+                          <button
+                            onClick={() => sendFeedback(i, 1)}
+                            disabled={!!m.feedback}
+                            style={{
+                              fontSize: 11, padding: "3px 8px", borderRadius: 8, border: "1px solid",
+                              borderColor: m.feedback === 1 ? "rgba(16,185,129,0.5)" : "rgba(0,0,0,0.15)",
+                              background: m.feedback === 1 ? "rgba(16,185,129,0.15)" : "rgba(0,0,0,0.04)",
+                              color: m.feedback === 1 ? "#059669" : "#6b7280",
+                              cursor: m.feedback ? "default" : "pointer",
+                            }}
+                          >
+                            👍 解決した
+                          </button>
+                          <button
+                            onClick={() => sendFeedback(i, -1)}
+                            disabled={!!m.feedback}
+                            style={{
+                              fontSize: 11, padding: "3px 8px", borderRadius: 8, border: "1px solid",
+                              borderColor: m.feedback === -1 ? "rgba(59,130,246,0.5)" : "rgba(0,0,0,0.15)",
+                              background: m.feedback === -1 ? "rgba(59,130,246,0.15)" : "rgba(0,0,0,0.04)",
+                              color: m.feedback === -1 ? "#2563eb" : "#6b7280",
+                              cursor: m.feedback ? "default" : "pointer",
+                            }}
+                          >
+                            👎 解決しなかった
+                          </button>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>

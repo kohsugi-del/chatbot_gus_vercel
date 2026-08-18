@@ -98,10 +98,13 @@ export type ChatResponse = {
   conversation_id: string;
   answer: string;
   confidence_score: number;
-  retrieved_docs: {
+  // 回答本文中の [1][2]... インライン引用番号に対応する出典（実際に引用された分のみ）
+  citations: {
+    number: number;
     id: string;
     title: string;
     source: string;
+    snippet?: string;
   }[];
   escalated: boolean;
   keyword_matched: string | null;

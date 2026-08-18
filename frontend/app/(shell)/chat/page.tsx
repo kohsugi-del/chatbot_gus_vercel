@@ -6,6 +6,15 @@ import ChatContainer from "@/components/ChatContainer";
 import ChatBubble from "@/components/ChatBubble";
 import ChatInput from "@/components/ChatInput";
 import TypingDots from "@/components/TypingDots";
+import { parseCitationSegments } from "@/lib/parseCitations";
+
+type Citation = {
+  number: number;
+  id: string;
+  title: string;
+  source: string;
+  snippet?: string;
+};
 
 type Msg = {
   role: "user" | "assistant";
@@ -13,13 +22,7 @@ type Msg = {
   messageId?: string;
   conversationId?: string;
   feedback?: 1 | -1;
-};
-
-type EarthquakeStatus = {
-  is_active: boolean;
-  intensity: string | null;
-  area: string | null;
-  detected_at: string | null;
+  citations?: Citation[];
 };
 
 // ガス漏れ関連キーワード
@@ -49,7 +52,6 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [thinking, setThinking] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
-  const [quakeStatus, setQuakeStatus] = useState<EarthquakeStatus>({ is_active: false, intensity: null, area: null, detected_at: null });
 
   // UI表示用：API疎通状態
   const [apiStatus, setApiStatus] = useState<"idle" | "connected" | "error">(
@@ -59,18 +61,31 @@ export default function ChatPage() {
   // 自動スクロール
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
-  // 地震ステータスポーリング（5分ごと）
-  useEffect(() => {
-    async function checkQuake() {
-      try {
-        const res = await fetch("/api/earthquake-status");
-        if (res.ok) setQuakeStatus(await res.json() as EarthquakeStatus);
-      } catch { /* silent */ }
+  // 出典チップのホバー吹き出し：スクロール領域内でも上下に見切れないよう、
+  // アンカーの画面上の位置から動的に上/下どちらに開くか決めてfixed配置する
+  const [citeTooltip, setCiteTooltip] = useState<{ x: number; y: number; openUp: boolean; citation: Citation } | null>(null);
+  const showCiteTooltip = (e: React.MouseEvent<HTMLElement>, citation: Citation) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const openUp = rect.top > 110;
+    setCiteTooltip({
+      x: Math.min(rect.left, window.innerWidth - 232),
+      y: openUp ? rect.top - 6 : rect.bottom + 6,
+      openUp,
+      citation,
+    });
+  };
+  const hideCiteTooltip = () => setCiteTooltip(null);
+
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const copyMessage = async (index: number, content: string) => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex((cur) => (cur === index ? null : cur)), 1500);
+    } catch {
+      // クリップボードAPIが使えない環境では何もしない
     }
-    checkQuake();
-    const id = setInterval(checkQuake, 5 * 60 * 1000);
-    return () => clearInterval(id);
-  }, []);
+  };
 
   // ガス漏れキーワード検知（入力中 OR 直近のユーザーメッセージ）
   const lastUserMsg = messages.filter(m => m.role === "user").at(-1)?.content ?? "";
@@ -162,7 +177,7 @@ export default function ChatPage() {
         }),
       });
 
-      type ChatApiResponse = { answer?: string; message_id?: string; conversation_id?: string; error?: string };
+      type ChatApiResponse = { answer?: string; message_id?: string; conversation_id?: string; citations?: Citation[]; error?: string };
       const data = await res.json().catch(() => ({})) as ChatApiResponse;
 
       if (!res.ok) {
@@ -182,6 +197,7 @@ export default function ChatPage() {
           content: botReply,
           messageId: data?.message_id,
           conversationId: data?.conversation_id,
+          citations: data?.citations ?? [],
         },
       ]);
     } catch (e: unknown) {
@@ -201,6 +217,37 @@ export default function ChatPage() {
       : apiStatus === "error"
       ? "error"
       : "ready";
+
+  // 出典番号 [1] を、ホバーでその抜粋だけを吹き出し表示する小さなインラインチップに変換
+  const renderCitationChip = (citation: Citation | undefined, number: number, key: string) => {
+    if (!citation) return null; // 対応する出典が見つからない場合は何も表示しない（安全側）
+    const clickable = citation.source?.startsWith("http");
+    const commonProps = {
+      "aria-label": citation.title || citation.source,
+      className: "inline-flex h-[15px] w-[15px] items-center justify-center rounded-full bg-sky-400 align-super text-[9px] font-extrabold text-white no-underline",
+      onMouseEnter: (e: React.MouseEvent<HTMLElement>) => showCiteTooltip(e, citation),
+      onMouseLeave: hideCiteTooltip,
+    };
+    return clickable ? (
+      <a key={key} href={citation.source} target="_blank" rel="noopener noreferrer" {...commonProps}>
+        {number}
+      </a>
+    ) : (
+      <span key={key} {...commonProps}>
+        {number}
+      </span>
+    );
+  };
+
+  const renderMessageContent = (content: string, citations?: Citation[]) => {
+    if (!citations || citations.length === 0) return content;
+    const byNumber = new Map(citations.map((c) => [c.number, c]));
+    return parseCitationSegments(content).map((seg, si) =>
+      seg.type === "text"
+        ? <span key={si}>{seg.value}</span>
+        : renderCitationChip(byNumber.get(seg.number), seg.number, String(si))
+    );
+  };
 
   // 埋め込みプレビュー：本番の /embed をそのままiframe表示。左メニューを含む
   // 通常レイアウトを画面全体のオーバーレイで覆うだけで、/embed 自体（ログイン不要の
@@ -225,6 +272,24 @@ export default function ChatPage() {
 
   return (
     <ChatContainer>
+      {/* 出典チップのホバー吹き出し：fixed配置でスクロール領域の上下端でも見切れない
+          （アンカー位置からJSで計算し、上に余白が無ければ下向きに開く） */}
+      {citeTooltip && (
+        <div
+          className="pointer-events-none fixed z-50 w-56 max-w-[calc(100vw-16px)] rounded-lg bg-slate-800 p-2 text-[11px] leading-relaxed text-white shadow-xl"
+          style={{
+            left: citeTooltip.x,
+            top: citeTooltip.openUp ? undefined : citeTooltip.y,
+            bottom: citeTooltip.openUp ? `calc(100vh - ${citeTooltip.y}px)` : undefined,
+          }}
+        >
+          <span className="mb-0.5 block text-[10px] font-bold opacity-75">
+            {citeTooltip.citation.title || citeTooltip.citation.source}
+          </span>
+          <span>{citeTooltip.citation.snippet || "抜粋を取得できませんでした"}</span>
+        </div>
+      )}
+
       {/* 既存コンテナの上に “カード枠” を置く */}
       <div className="mx-auto w-full max-w-4xl px-4 py-8">
         {/* Header */}
@@ -280,24 +345,6 @@ export default function ChatPage() {
               </div>
             </div>
 
-            {/* 緊急地震バナー */}
-            {quakeStatus.is_active && (
-              <div className="mb-3 rounded-xl border border-red-300 bg-red-50 p-3 flex items-start gap-3 animate-pulse">
-                <span className="text-2xl leading-none">🚨</span>
-                <div className="flex-1">
-                  <p className="text-red-700 font-bold text-sm">緊急地震速報：震度{quakeStatus.intensity}（{quakeStatus.area}）</p>
-                  <p className="text-red-700 text-xs mt-1">
-                    ガスメーターの遮断ボタンを押してガスを止めてください。<br />
-                    再点火は揺れが収まり安全を確認してから行ってください。
-                  </p>
-                  <p className="text-red-800 text-xs font-bold mt-1">
-                    緊急ガス漏れ通報（24時間対応）<br />
-                    {EMERGENCY_PHONE}
-                  </p>
-                </div>
-              </div>
-            )}
-
             <div className="min-h-[380px] max-h-[60vh] overflow-auto rounded-2xl border border-border bg-muted p-4">
               {messages.length === 0 ? (
                 <div className="text-sm text-muted-foreground">
@@ -309,29 +356,45 @@ export default function ChatPage() {
               ) : null}
 
               <div className="space-y-3">
-                {messages.map((m, i) => (
+                {messages.map((m, i) => {
+                  return (
                   <div key={i}>
-                    <ChatBubble role={m.role}>{m.content}</ChatBubble>
-                    {m.role === "assistant" && m.messageId && (
+                    <ChatBubble role={m.role}>
+                      {m.role === "assistant" ? renderMessageContent(m.content, m.citations) : m.content}
+                    </ChatBubble>
+
+                    {m.role === "assistant" && (
                       <div className="flex gap-2 mt-1 ml-1">
                         <button
-                          onClick={() => sendFeedback(i, 1)}
-                          disabled={!!m.feedback}
-                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === 1 ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "border-border bg-card text-muted-foreground hover:bg-accent"}`}
+                          onClick={() => copyMessage(i, m.content)}
+                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${copiedIndex === i ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "border-border bg-card text-muted-foreground hover:bg-accent"}`}
                         >
-                          👍 解決した
+                          {copiedIndex === i ? "✅ コピーしました" : "📋 コピー"}
                         </button>
-                        <button
-                          onClick={() => sendFeedback(i, -1)}
-                          disabled={!!m.feedback}
-                          className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === -1 ? "bg-sky-50 border-sky-200 text-sky-700" : "border-border bg-card text-muted-foreground hover:bg-accent"}`}
-                        >
-                          👎 解決しなかった
-                        </button>
+
+                        {m.messageId && (
+                          <>
+                            <button
+                              onClick={() => sendFeedback(i, 1)}
+                              disabled={!!m.feedback}
+                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === 1 ? "bg-emerald-50 border-emerald-200 text-emerald-700" : "border-border bg-card text-muted-foreground hover:bg-accent"}`}
+                            >
+                              👍 解決した
+                            </button>
+                            <button
+                              onClick={() => sendFeedback(i, -1)}
+                              disabled={!!m.feedback}
+                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${m.feedback === -1 ? "bg-sky-50 border-sky-200 text-sky-700" : "border-border bg-card text-muted-foreground hover:bg-accent"}`}
+                            >
+                              👎 解決しなかった
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
 
                 {thinking && (
                   <ChatBubble role="assistant">
