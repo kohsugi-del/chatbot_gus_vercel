@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 
 type Account = { id: string; email: string; name: string | null };
 
-const MAX_ACCOUNTS = 3;
+// lib/credentials.ts の ASAHIKAWA_GAS_MAX_ACCOUNTS と一致させること（表示・ボタン制御のみで実際の上限判定はサーバー側）
+const MAX_ACCOUNTS = 200;
 
 export default function AccountsPage() {
   const router = useRouter();
