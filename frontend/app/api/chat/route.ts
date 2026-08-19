@@ -46,7 +46,6 @@ type ChatBody = Partial<ChatRequest> & {
   message?: string;
   top_k?: number;
   messages?: ClientMsg[];
-  scenario_context?: string;    // シナリオエンジン: 現在のノード文脈
 };
 
 // ---- OpenAI（埋め込みのみ）----
@@ -210,6 +209,73 @@ function makeSnippet(text: string, maxChars = 220): string {
   return flat.length > maxChars ? flat.slice(0, maxChars).trim() + "…" : flat;
 }
 
+function charBigrams(s: string): Set<string> {
+  const clean = s.replace(/\s+/g, "");
+  const grams = new Set<string>();
+  for (let i = 0; i < clean.length - 1; i++) grams.add(clean.slice(i, i + 2));
+  return grams;
+}
+
+// 回答本文中で[n]の直前にある一文（根拠として引用した箇所）を、文末記号ベースで抜き出す
+function extractCitedSentence(answer: string, markerIndex: number): string {
+  const before = answer.slice(0, markerIndex);
+  const boundary = Math.max(
+    before.lastIndexOf("。"),
+    before.lastIndexOf("！"),
+    before.lastIndexOf("？"),
+    before.lastIndexOf("\n")
+  );
+  return before.slice(boundary + 1);
+}
+
+// 出典チャンク（1〜2500字程度と長く、複数の異なる話題を含みうる）の中から、
+// 引用元の一文と文字bigramの重なりが最も大きい窓を抜粋として選ぶ。
+// これにより、同じ資料が複数箇所で引用されても、箇所ごとに文脈に合った抜粋を表示できる
+// （常に先頭220字だけを返すと、後半にある話題を引用した箇所では無関係な冒頭が表示されてしまうため）
+function bestSnippetWindow(
+  sourceText: string,
+  citedSentence: string,
+  windowSize = 220,
+  step = 40
+): string {
+  const flat = sourceText.replace(/\s+/g, " ").trim();
+  if (flat.length <= windowSize) return flat;
+
+  const targetGrams = charBigrams(citedSentence);
+  if (targetGrams.size === 0) return makeSnippet(sourceText, windowSize);
+
+  let bestStart = 0;
+  let bestScore = -1;
+  const scoreAt = (start: number) => {
+    const windowGrams = charBigrams(flat.slice(start, start + windowSize));
+    let score = 0;
+    for (const g of windowGrams) if (targetGrams.has(g)) score++;
+    return score;
+  };
+  for (let start = 0; start + windowSize <= flat.length; start += step) {
+    const score = scoreAt(start);
+    if (score > bestScore) {
+      bestScore = score;
+      bestStart = start;
+    }
+  }
+  // 末尾が候補から漏れないよう、最後の窓も明示的に評価する
+  const lastStart = flat.length - windowSize;
+  if (lastStart > bestStart) {
+    const score = scoreAt(lastStart);
+    if (score > bestScore) {
+      bestScore = score;
+      bestStart = lastStart;
+    }
+  }
+
+  if (bestScore <= 0) return makeSnippet(sourceText, windowSize); // マッチが無ければ先頭にフォールバック
+
+  const prefix = bestStart > 0 ? "…" : "";
+  const suffix = bestStart + windowSize < flat.length ? "…" : "";
+  return prefix + flat.slice(bestStart, bestStart + windowSize).trim() + suffix;
+}
+
 function lastUserFromHistory(body: ChatBody): string {
   const direct = String(body.message ?? body.question ?? "").trim();
   if (direct) return direct;
@@ -237,8 +303,7 @@ function buildSystemPrompt(
   promptTemplate: string,
   categoryId: string | null,
   mode: ConversationMode,
-  config: ClientConfig,
-  scenarioContext?: string
+  config: ClientConfig
 ): string {
   const base = renderSystemPromptTemplate(promptTemplate, {
     clientId: config.clientId,
@@ -262,11 +327,7 @@ function buildSystemPrompt(
 通常の案内に加え、安全に関する情報も合わせて案内してください。`
       : "";
 
-  const scenarioContextStr = scenarioContext
-    ? `\n\n【現在の手続き文脈】\nユーザーは「${scenarioContext}」の手続き中に質問しています。\nこの文脈を踏まえて、手続きに関連した回答を優先してください。`
-    : "";
-
-  return base + categoryContext + emergencyContext + scenarioContextStr;
+  return base + categoryContext + emergencyContext;
 }
 
 // ============================================================
@@ -287,7 +348,7 @@ function buildAiMessages(opts: {
     : "(資料なし)";
 
   const citationInstruction = contexts.length > 0
-    ? `\n\n# 出典の示し方（重要・必ず守ってください）\n上記の資料の内容を回答に使ったときは、その情報の根拠となった一文の末尾（句点「。」の直前）に [1] のように資料番号を付けてください。複数の資料を参照した一文には [1][2] のように連続して付けてください。資料を使っていない一般的な挨拶・案内文には付けないでください。番号は上記の資料に実在する番号だけを使い、存在しない番号や資料が無いのに番号を付けることはしないでください。`
+    ? `\n\n# 出典の示し方（重要・必ず守ってください）\n上記の資料の内容を回答に使ったときは、その情報の根拠となった一文の末尾（句点「。」の直前）に [1] のように資料番号を付けてください。複数の資料を参照した一文には [1][2] のように連続して付けてください。資料を使っていない一般的な挨拶・案内文には付けないでください。番号は上記の資料に実在する番号だけを使い、存在しない番号や資料が無いのに番号を付けることはしないでください。\n特に重要: 番号は必ず「その一文の内容が実際に書かれている資料」の番号にしてください。番号が近い・なんとなく関連しそうという理由だけで推測して付けるのは禁止です。どの資料番号が正しいか自信が持てない場合は、番号を付けずに文章だけを書いてください（誤った番号を付けるより、番号なしの方が良いです）。`
     : "";
 
   const historyMessages: ModelMessage[] = history.map((m) => ({
@@ -380,7 +441,7 @@ export async function POST(req: NextRequest) {
 
     // ── 4) システムプロンプト生成 ─────────────────────────────
     const promptTemplate = await getSystemPromptTemplate();
-    const systemPrompt = buildSystemPrompt(promptTemplate, categoryId, mode, config, body.scenario_context);
+    const systemPrompt = buildSystemPrompt(promptTemplate, categoryId, mode, config);
 
     // ── 5) スマートルーティング ───────────────────────────────
     const complexityScore = calcComplexityScore(q, retrieved, sessionTurns);
@@ -436,15 +497,23 @@ export async function POST(req: NextRequest) {
       .replace(/\n{3,}/g, "\n\n")   // 3行以上の空行は2行までに圧縮
       .trim();
 
-    // 回答本文で実際に引用された資料番号だけを出典として返す（インライン表示用）
-    const citedNumbers = [
-      ...new Set(Array.from(answer.matchAll(/\[(\d+)\]/g), (m) => Number(m[1]))),
-    ].sort((a, b) => a - b);
-    const citations = citedNumbers
-      .map((n) => {
+    // 回答本文で実際に引用された箇所ごとに出典を返す（インライン表示用）。
+    // 同じ資料番号が複数箇所で引用されることがあるため、資料番号でまとめず出現順（occurrence）で1件ずつ作る。
+    // これにより、資料本文が長く複数の話題を含む場合でも、引用箇所ごとに文脈に合った抜粋を表示できる
+    const citations = Array.from(answer.matchAll(/\[(\d+)\]/g))
+      .map((m, occurrence) => {
+        const n = Number(m[1]);
         const r = retrieved[n - 1];
         if (!r) return null;
-        return { number: n, id: r.id, title: r.title, source: r.source, snippet: makeSnippet(r.text) };
+        const citedSentence = extractCitedSentence(answer, m.index ?? 0);
+        return {
+          occurrence,
+          number: n,
+          id: r.id,
+          title: r.title,
+          source: r.source,
+          snippet: bestSnippetWindow(r.text, citedSentence),
+        };
       })
       .filter((c): c is NonNullable<typeof c> => c !== null);
 

@@ -1,16 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  CATEGORY_SCENARIOS,
-  SCENARIOS,
-  type ScenarioChoice,
-} from "@/lib/scenarios";
 import { VoiceInputButton } from "@/components/VoiceInputButton";
 import type { InputMethod } from "@/types/log";
 import { parseCitationSegments } from "@/lib/parseCitations";
 
 type Citation = {
+  occurrence: number;
   number: number;
   id: string;
   title: string;
@@ -129,8 +125,10 @@ export default function ChatWidget({
   const showCiteTooltip = (e: React.MouseEvent<HTMLElement>, citation: Citation) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const openUp = rect.top > 110; // 上に十分な余白があれば上向き、なければ下向き
+    // 吹き出し幅(260px)+左右マージン(8px)を画面右端で必ず収まるようにクランプする。
+    // 番号が画面右半分にある場合、rect.leftをそのまま使うと吹き出しが右にはみ出すため
     setCiteTooltip({
-      x: Math.min(rect.left, window.innerWidth - 228),
+      x: Math.max(8, Math.min(rect.left, window.innerWidth - 268)),
       y: openUp ? rect.top - 6 : rect.bottom + 6,
       openUp,
       citation,
@@ -148,14 +146,6 @@ export default function ChatWidget({
     }
   };
 
-  // ── シナリオエンジン ──────────────────────────
-  const [scenarioSelectorCategory, setScenarioSelectorCategory] = useState<string | null>(null);
-  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
-  const [currentNodeId, setCurrentNodeId] = useState<string | null>(null);
-
-  const activeScenario = activeScenarioId ? (SCENARIOS[activeScenarioId] ?? null) : null;
-  const currentNode = activeScenario && currentNodeId ? (activeScenario.nodes[currentNodeId] ?? null) : null;
-
   // ガス漏れキーワード検知（入力中 OR 直近のユーザーメッセージ）
   const lastUserMsg = messages.filter(m => m.role === "user").at(-1)?.content ?? "";
   const showGasAlert = agreed && GAS_LEAK_KEYWORDS.some(kw => input.includes(kw) || lastUserMsg.includes(kw));
@@ -167,84 +157,6 @@ export default function ChatWidget({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [open, messages, thinking]);
-
-  // ── シナリオ操作 ──────────────────────────────
-  const startScenario = (scenarioId: string) => {
-    const s = SCENARIOS[scenarioId];
-    if (!s) return;
-    const firstNode = s.nodes[s.entryNodeId];
-    setActiveScenarioId(scenarioId);
-    setCurrentNodeId(s.entryNodeId);
-    setScenarioSelectorCategory(null);
-    setMessages((m) => [
-      ...m,
-      {
-        role: "assistant",
-        content: firstNode.content,
-        noFeedback: true,
-        formUrls: firstNode.formUrls,
-      },
-    ]);
-  };
-
-  const advanceScenario = (choice: ScenarioChoice) => {
-    if (!activeScenario) return;
-    const nextNode = activeScenario.nodes[choice.nextNodeId];
-    if (!nextNode) return;
-    setCurrentNodeId(choice.nextNodeId);
-    setMessages((m) => [
-      ...m,
-      { role: "user", content: choice.label, noFeedback: true },
-      {
-        role: "assistant",
-        content: nextNode.content,
-        noFeedback: true,
-        formUrls: nextNode.formUrls,
-      },
-    ]);
-    if (nextNode.type === "end") {
-      setActiveScenarioId(null);
-      setCurrentNodeId(null);
-    }
-  };
-
-  const advanceToNextNode = (nextNodeId: string) => {
-    if (!activeScenario) return;
-    const nextNode = activeScenario.nodes[nextNodeId];
-    if (!nextNode) return;
-    setCurrentNodeId(nextNodeId);
-    setMessages((m) => [
-      ...m,
-      {
-        role: "assistant",
-        content: nextNode.content,
-        noFeedback: true,
-        formUrls: nextNode.formUrls,
-      },
-    ]);
-    if (nextNode.type === "end") {
-      setActiveScenarioId(null);
-      setCurrentNodeId(null);
-    }
-  };
-
-  const exitScenarioToFreeChat = () => {
-    setActiveScenarioId(null);
-    setCurrentNodeId(null);
-    setScenarioSelectorCategory(null);
-    setMessages((m) => [
-      ...m,
-      { role: "assistant", content: "ご質問をテキストで入力してください。", noFeedback: true },
-    ]);
-  };
-
-  const backToScenarioSelector = () => {
-    setActiveScenarioId(null);
-    setCurrentNodeId(null);
-    if (categoryId && CATEGORY_SCENARIOS[categoryId]) {
-      setScenarioSelectorCategory(categoryId);
-    }
-  };
 
   const sendFeedback = async (index: number, value: 1 | -1) => {
     const msg = messages[index];
@@ -287,15 +199,6 @@ export default function ChatWidget({
     setCategoryId(cat.id);
     const userMsg = `【${cat.label}】について質問します`;
 
-    // シナリオが定義されているカテゴリはシナリオ選択画面へ
-    if (CATEGORY_SCENARIOS[cat.id]?.length) {
-      setMessages([{ role: "user", content: userMsg }]);
-      setScenarioSelectorCategory(cat.id);
-      setActiveScenarioId(null);
-      setCurrentNodeId(null);
-      return;
-    }
-
     const nextMessages: Msg[] = [{ role: "user", content: userMsg }];
     setMessages(nextMessages);
     setThinking(true);
@@ -331,17 +234,9 @@ export default function ChatWidget({
     const q = (overrideQ ?? input).trim();
     if (!q || thinking) return;
 
-    // シナリオ選択画面中にテキスト入力 → フリーチャットへ切り替え
-    if (scenarioSelectorCategory) {
-      setScenarioSelectorCategory(null);
-    }
-
     setInput("");
     setMessages((m) => [...m, { role: "user", content: q }]);
     setThinking(true);
-
-    // 送信時点のシナリオ文脈を確定（state 更新前のクロージャ値を使用）
-    const scenarioCtx = currentNode?.context ?? undefined;
 
     try {
       const nextMessages: Msg[] = [...messages, { role: "user", content: q }];
@@ -356,7 +251,6 @@ export default function ChatWidget({
           session_id: sessionId,
           category_id: categoryId,
           mode: "normal",
-          scenario_context: scenarioCtx,
           input_method: inputMethod,
         }),
       });
@@ -590,11 +484,13 @@ export default function ChatWidget({
 
   const renderMessageContent = (content: string, citations?: Citation[]) => {
     if (!citations || citations.length === 0) return content;
-    const byNumber = new Map(citations.map((c) => [c.number, c]));
+    // occurrence（本文中の出現順）で引くことで、同じ資料番号が複数箇所で引用されても
+    // それぞれの箇所に文脈が合った抜粋（citation.snippet）を出し分けられる
+    const byOccurrence = new Map(citations.map((c) => [c.occurrence, c]));
     return parseCitationSegments(content).map((seg, si) =>
       seg.type === "text"
         ? <span key={si}>{seg.value}</span>
-        : renderCitationChip(byNumber.get(seg.number), seg.number, String(si))
+        : renderCitationChip(byOccurrence.get(seg.occurrence), seg.number, String(si))
     );
   };
 
@@ -611,13 +507,15 @@ export default function ChatWidget({
             bottom: citeTooltip.openUp ? `calc(100vh - ${citeTooltip.y}px)` : undefined,
             width: 260,
             maxWidth: "calc(100vw - 16px)",
-            background: THEME.ink,
+            // 吹き出し(ユーザー/チップ)と同系統の水色をそのまま使うと会話本文と見分けがつきにくくなるため、
+            // ブランドカラーを暗く落ち着かせた濃紺〜ダークティールにして、会話とは別レイヤーだと分かるようにする
+            background: "#123A4D",
             color: "#fff",
             fontSize: 14,
             lineHeight: 1.6,
             padding: "10px 12px",
             borderRadius: 10,
-            boxShadow: "0 10px 26px rgba(0,0,0,0.30)",
+            boxShadow: "0 10px 26px rgba(18,58,77,0.45)",
             zIndex: Z + 1,
             whiteSpace: "normal",
             pointerEvents: "none",
@@ -926,110 +824,6 @@ export default function ChatWidget({
               );
             })}
 
-            {/* ── シナリオ選択画面 ── */}
-            {agreed && scenarioSelectorCategory && CATEGORY_SCENARIOS[scenarioSelectorCategory] && !thinking && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                <div style={{ ...botBubble, alignSelf: "flex-start" }}>
-                  ご用件をお選びください。
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, alignSelf: "flex-start", width: "88%" }}>
-                  {CATEGORY_SCENARIOS[scenarioSelectorCategory].map((sid) => {
-                    const s = SCENARIOS[sid];
-                    if (!s) return null;
-                    return (
-                      <button
-                        key={sid}
-                        type="button"
-                        onClick={() => startScenario(sid)}
-                        style={{
-                          display: "flex", alignItems: "center", gap: 8,
-                          padding: "10px 12px", borderRadius: 12,
-                          border: `1px solid ${THEME.botBorder}`,
-                          background: THEME.botBg, color: THEME.ink,
-                          fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left",
-                        }}
-                      >
-                        {s.name}
-                      </button>
-                    );
-                  })}
-                  <button
-                    type="button"
-                    onClick={exitScenarioToFreeChat}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8,
-                      padding: "10px 12px", borderRadius: 12,
-                      border: "1px solid rgba(0,0,0,0.12)",
-                      background: "rgba(0,0,0,0.03)", color: "#6b7280",
-                      fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left",
-                    }}
-                  >
-                    その他のご質問
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* ── シナリオ選択肢ボタン（choice ノード） ── */}
-            {agreed && !scenarioSelectorCategory && currentNode?.type === "choice" && currentNode.choices && !thinking && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 6, alignSelf: "flex-start", width: "88%" }}>
-                {currentNode.choices.map((choice) => (
-                  <button
-                    key={choice.nextNodeId}
-                    type="button"
-                    onClick={() => advanceScenario(choice)}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 8,
-                      padding: "10px 12px", borderRadius: 12,
-                      border: `1px solid ${THEME.botBorder}`,
-                      background: THEME.botBg, color: THEME.ink,
-                      fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left",
-                    }}
-                  >
-                    {choice.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* ── 次のステップへボタン（message ノード） ── */}
-            {agreed && currentNode?.type === "message" && currentNode.nextNodeId && !thinking && (
-              <div style={{ alignSelf: "flex-start" }}>
-                <button
-                  type="button"
-                  onClick={() => advanceToNextNode(currentNode.nextNodeId!)}
-                  style={{
-                    padding: "10px 16px", borderRadius: 12,
-                    border: `1px solid ${THEME.botBorder}`,
-                    background: `linear-gradient(135deg, ${THEME.brand1}, ${THEME.brand2})`,
-                    color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer",
-                    boxShadow: "0 6px 16px rgba(46,197,244,0.30)",
-                  }}
-                >
-                  次のステップへ →
-                </button>
-              </div>
-            )}
-
-            {/* ── 「← 別の手続きを選ぶ」はシナリオアクティブ中は常時表示 ── */}
-            {agreed && activeScenario && !scenarioSelectorCategory && !thinking && (
-              <div style={{ alignSelf: "flex-start" }}>
-                <button
-                  type="button"
-                  onClick={backToScenarioSelector}
-                  style={{
-                    display: "flex", alignItems: "center",
-                    padding: "8px 12px", borderRadius: 12,
-                    border: "1px solid rgba(0,0,0,0.12)",
-                    background: "rgba(0,0,0,0.03)", color: "#6b7280",
-                    fontSize: 12, fontWeight: 600, cursor: "pointer",
-                  }}
-                >
-                  ← 別の手続きを選ぶ
-                </button>
-              </div>
-            )}
-
             {thinking && (
               <div
                 style={{
@@ -1050,7 +844,7 @@ export default function ChatWidget({
               onKeyDown={(e) => {
                 if (e.key === "Enter") send();
               }}
-              placeholder={currentNode ? "このステップについてご質問できます" : "ご質問をどうぞ"}
+              placeholder="ご質問をどうぞ"
               style={inputStyle}
             />
             <VoiceInputButton onTranscribed={handleTranscribed} disabled={thinking} idleBg="rgba(46,197,244,0.12)" />
