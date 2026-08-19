@@ -17,5 +17,11 @@ ALTER TABLE sites ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE D
 
 CREATE INDEX IF NOT EXISTS idx_sites_created_at ON sites (created_at);
 
+-- RLS（現状は無効で、公開されているanonキーから誰でも読み書きできてしまっていた）
+-- ポリシーは作らず有効化のみ： service_role（/api/sites, chatbot_backendのDATABASE_URL接続）は
+-- RLSを自動バイパスするので影響なし。anon/authenticatedからのアクセスのみ塞ぐ。
+ALTER TABLE sites ENABLE ROW LEVEL SECURITY;
+
 -- ロールバック手順（問題発生時のみ実行）
+-- ALTER TABLE sites DISABLE ROW LEVEL SECURITY;
 -- DROP TABLE IF EXISTS sites CASCADE;
