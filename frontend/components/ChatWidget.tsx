@@ -609,13 +609,13 @@ export default function ChatWidget({
             left: citeTooltip.x,
             top: citeTooltip.openUp ? undefined : citeTooltip.y,
             bottom: citeTooltip.openUp ? `calc(100vh - ${citeTooltip.y}px)` : undefined,
-            width: 220,
+            width: 260,
             maxWidth: "calc(100vw - 16px)",
             background: THEME.ink,
             color: "#fff",
-            fontSize: 11,
+            fontSize: 14,
             lineHeight: 1.6,
-            padding: "8px 10px",
+            padding: "10px 12px",
             borderRadius: 10,
             boxShadow: "0 10px 26px rgba(0,0,0,0.30)",
             zIndex: Z + 1,
@@ -623,7 +623,7 @@ export default function ChatWidget({
             pointerEvents: "none",
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: 10, opacity: 0.75, marginBottom: 3 }}>
+          <div style={{ fontWeight: 700, fontSize: 12, opacity: 0.75, marginBottom: 3 }}>
             {citeTooltip.citation.title || citeTooltip.citation.source}
           </div>
           <div>{citeTooltip.citation.snippet || "抜粋を取得できませんでした"}</div>
