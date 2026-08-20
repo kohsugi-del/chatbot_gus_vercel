@@ -76,6 +76,14 @@ export default function ChatWidget({
 
   const THEME_PHONE = "0166-23-4151（旭川市・平日 9:00〜17:00）\n011-382-4211（江別地区・平日 9:00〜17:00）";
 
+  const CATEGORIES = [
+    { icon: "🏠", label: "ご家庭のお客様",   id: "家庭用",     fullWidth: false },
+    { icon: "🏢", label: "業務用のお客様",   id: "業務用",     fullWidth: false },
+    { icon: "⚙️", label: "ガスの開栓・閉栓", id: "手続き・契約", fullWidth: false },
+    { icon: "🔧", label: "ガス機器",         id: "ガス機器",   fullWidth: false },
+    { icon: "👥", label: "会社・採用",       id: "会社・採用", fullWidth: true  },
+  ];
+
   const TERMS = [
     "本サービスは、生成AIを活用しており、旭川ガスが用意した情報に基づき、生成AIが自動で質問にお答えするサービスです。ガスのご利用・お手続き・料金・安全に関する情報の確認や調べ物のサポートとして、適切にご利用ください。",
     "質問によっては誤った回答が表示される場合がございます。回答の際に参考情報のリンク先が表示される場合は、あわせてご確認いただき、正確な情報かどうかをご判断ください。",
@@ -184,6 +192,41 @@ export default function ChatWidget({
         content: `引き続きご不便をおかけして申し訳ありません。\nお電話でお問い合わせください。\n\n${THEME_PHONE}`,
         noFeedback: true,
       }]);
+    }
+  };
+
+  const selectCategory = async (cat: typeof CATEGORIES[number]) => {
+    setCategoryId(cat.id);
+    const userMsg = `【${cat.label}】について質問します`;
+
+    const nextMessages: Msg[] = [{ role: "user", content: userMsg }];
+    setMessages(nextMessages);
+    setThinking(true);
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userMsg,
+          top_k: 8,
+          messages: nextMessages,
+          session_id: sessionId,
+          category_id: cat.id,
+          mode: "normal",
+        }),
+      });
+      const data = await res.json().catch(() => ({})) as ChatApiResponse;
+      const answer = data?.answer ?? "ご質問をどうぞ。";
+      if (data?.form_urls?.length) setFormUrls(data.form_urls);
+      setMessages((m) => [...m, {
+        role: "assistant", content: String(answer),
+        messageId: data?.message_id, conversationId: data?.conversation_id,
+        citations: data?.citations ?? [],
+      }]);
+    } catch (e: unknown) {
+      setMessages((m) => [...m, { role: "assistant", content: `エラー：${e instanceof Error ? e.message : String(e)}` }]);
+    } finally {
+      setThinking(false);
     }
   };
 
@@ -643,12 +686,52 @@ export default function ChatWidget({
           {/* チャット本体（同意後のみ表示） */}
           <div ref={listRef} style={{ ...body, display: agreed ? "flex" : "none" }}>
             {messages.length === 0 && (
-              <div style={{ ...botBubble, alignSelf: "flex-start" }}>
-                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>
-                  ● 応答中
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {/* ウェルカムメッセージ */}
+                <div style={{ ...botBubble, alignSelf: "flex-start" }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>
+                    ● 応答中
+                  </div>
+                  <div style={{ fontSize: 13 }}>
+                    ご用件のカテゴリをお選びください。<br />
+                    そのままご質問いただくこともできます。
+                  </div>
                 </div>
-                <div style={{ fontSize: 13 }}>
-                  ご質問をどうぞ。
+
+                {/* カテゴリボタン */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {CATEGORIES.map((cat) => (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => selectCategory(cat)}
+                      style={{
+                        gridColumn: cat.fullWidth ? "1 / -1" : undefined,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "10px 12px",
+                        borderRadius: 12,
+                        border: `1px solid ${THEME.botBorder}`,
+                        background: THEME.botBg,
+                        color: THEME.ink,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "background 120ms",
+                      }}
+                      onMouseEnter={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.background = `rgba(46,197,244,0.18)`;
+                      }}
+                      onMouseLeave={(e) => {
+                        (e.currentTarget as HTMLButtonElement).style.background = THEME.botBg;
+                      }}
+                    >
+                      <span style={{ fontSize: 18 }}>{cat.icon}</span>
+                      <span>{cat.label}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
