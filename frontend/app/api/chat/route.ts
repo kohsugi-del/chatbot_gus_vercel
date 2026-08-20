@@ -20,6 +20,7 @@ import { applyAutocut } from "@/lib/autocut";
 import { fuseHybridResults } from "@/lib/hybridSearch";
 import { getSystemPromptTemplate, renderSystemPromptTemplate } from "@/lib/systemPrompt";
 import { getEmergencyKeywords } from "@/lib/emergencyKeywords";
+import { findProceduralAnswer } from "@/lib/proceduralAnswers";
 import { buildModel, getModelId } from "@/lib/aiProvider";
 import { decryptSecret } from "@/lib/settingsCrypto";
 import type { ConversationMode, ClientConfig, ChatRequest, ChatResponse } from "@/types/log";
@@ -303,7 +304,8 @@ function buildSystemPrompt(
   promptTemplate: string,
   categoryId: string | null,
   mode: ConversationMode,
-  config: ClientConfig
+  config: ClientConfig,
+  proceduralSummary?: string
 ): string {
   const base = renderSystemPromptTemplate(promptTemplate, {
     clientId: config.clientId,
@@ -327,7 +329,15 @@ function buildSystemPrompt(
 通常の案内に加え、安全に関する情報も合わせて案内してください。`
       : "";
 
-  return base + categoryContext + emergencyContext;
+  // 開栓・閉栓・名義変更など定型手続きの質問は、スクレイピング資料のノイズで
+  // 誤った資料が引用されやすい（例: 新規開栓をお客さま自身での操作と誤案内してしまう）ため、
+  // 正確な要約を資料より優先する指示として注入する。この要約はRAGの「資料」には含めず、
+  // 文中の[n]引用番号の対象にはしない（既存の引用チップ表示の仕組みと衝突させないため）
+  const proceduralStr = proceduralSummary
+    ? `\n\n【正確な手続き情報（資料より優先してください。引用番号[n]は付けないでください）】\n${proceduralSummary}`
+    : "";
+
+  return base + categoryContext + emergencyContext + proceduralStr;
 }
 
 // ============================================================
@@ -441,7 +451,10 @@ export async function POST(req: NextRequest) {
 
     // ── 4) システムプロンプト生成 ─────────────────────────────
     const promptTemplate = await getSystemPromptTemplate();
-    const systemPrompt = buildSystemPrompt(promptTemplate, categoryId, mode, config);
+    // 自由入力の質問が「開栓」「閉栓」「名義変更」などの定型手続きに該当する場合、
+    // 正確な要約をシステムプロンプトに注入する
+    const matchedProcedural = findProceduralAnswer(q);
+    const systemPrompt = buildSystemPrompt(promptTemplate, categoryId, mode, config, matchedProcedural?.summary);
 
     // ── 5) スマートルーティング ───────────────────────────────
     const complexityScore = calcComplexityScore(q, retrieved, sessionTurns);
