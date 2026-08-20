@@ -82,6 +82,7 @@ export type ChatRequest = {
   mode: ConversationMode;
   message: string;
   conversation_id?: string;     // 2回目以降は渡す
+  scenario_context?: string;    // シナリオエンジン: 現在のノード文脈
   input_method?: InputMethod;   // 未指定時は "text" として扱う
 };
 
@@ -97,10 +98,8 @@ export type ChatResponse = {
   conversation_id: string;
   answer: string;
   confidence_score: number;
-  // 回答本文中の [1][2]... インライン引用番号に対応する出典（実際に引用された箇所ごとに1件）。
-  // occurrenceは本文中の出現順（同じ資料番号が複数箇所で引用されても抜粋は箇所ごとに異なる）
+  // 回答本文中の [1][2]... インライン引用番号に対応する出典（実際に引用された分のみ）
   citations: {
-    occurrence: number;
     number: number;
     id: string;
     title: string;

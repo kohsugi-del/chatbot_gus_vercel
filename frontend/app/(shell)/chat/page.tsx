@@ -9,7 +9,6 @@ import TypingDots from "@/components/TypingDots";
 import { parseCitationSegments } from "@/lib/parseCitations";
 
 type Citation = {
-  occurrence: number;
   number: number;
   id: string;
   title: string;
@@ -68,10 +67,8 @@ export default function ChatPage() {
   const showCiteTooltip = (e: React.MouseEvent<HTMLElement>, citation: Citation) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const openUp = rect.top > 110;
-    // 吹き出し幅(w-64=256px)+左右マージン(8px)を画面右端で必ず収まるようにクランプする。
-    // 番号が画面右半分にある場合、rect.leftをそのまま使うと吹き出しが右にはみ出すため
     setCiteTooltip({
-      x: Math.max(8, Math.min(rect.left, window.innerWidth - 264)),
+      x: Math.min(rect.left, window.innerWidth - 232),
       y: openUp ? rect.top - 6 : rect.bottom + 6,
       openUp,
       citation,
@@ -244,13 +241,11 @@ export default function ChatPage() {
 
   const renderMessageContent = (content: string, citations?: Citation[]) => {
     if (!citations || citations.length === 0) return content;
-    // occurrence（本文中の出現順）で引くことで、同じ資料番号が複数箇所で引用されても
-    // それぞれの箇所に文脈が合った抜粋（citation.snippet）を出し分けられる
-    const byOccurrence = new Map(citations.map((c) => [c.occurrence, c]));
+    const byNumber = new Map(citations.map((c) => [c.number, c]));
     return parseCitationSegments(content).map((seg, si) =>
       seg.type === "text"
         ? <span key={si}>{seg.value}</span>
-        : renderCitationChip(byOccurrence.get(seg.occurrence), seg.number, String(si))
+        : renderCitationChip(byNumber.get(seg.number), seg.number, String(si))
     );
   };
 
@@ -281,9 +276,7 @@ export default function ChatPage() {
           （アンカー位置からJSで計算し、上に余白が無ければ下向きに開く） */}
       {citeTooltip && (
         <div
-          // 吹き出し(ユーザー/チップ)と同系統の水色をそのまま使うと会話本文と見分けがつきにくくなるため、
-          // ブランドカラーを暗く落ち着かせた濃紺〜ダークティールにして、会話とは別レイヤーだと分かるようにする
-          className="pointer-events-none fixed z-50 w-64 max-w-[calc(100vw-16px)] rounded-lg bg-[#123A4D] p-3 text-sm leading-relaxed text-white shadow-xl"
+          className="pointer-events-none fixed z-50 w-64 max-w-[calc(100vw-16px)] rounded-lg bg-slate-800 p-3 text-sm leading-relaxed text-white shadow-xl"
           style={{
             left: citeTooltip.x,
             top: citeTooltip.openUp ? undefined : citeTooltip.y,
