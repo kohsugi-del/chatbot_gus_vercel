@@ -21,10 +21,8 @@ export type AuthUser = {
 
 const RESET_TOKEN_TTL_MS = 30 * 60 * 1000; // 30分
 
-// asahikawa-gas ロールで管理できるアカウント総数の上限（管理者自身を含む）。
-// 社内個人版のため実質的に全社員が対象になりうる。実務上は制限にかからない
-// 十分大きな値にしつつ、バグによる無制限作成を防ぐセーフティネットとして残す
-export const ASAHIKAWA_GAS_MAX_ACCOUNTS = 200;
+// asahikawa-gas ロールで管理できるアカウント総数の上限（管理者自身を含む）
+export const ASAHIKAWA_GAS_MAX_ACCOUNTS = 3;
 
 const SELECT_COLUMNS =
   "id, role, email, name, is_admin, password_hash, reset_token_hash, reset_token_expires_at";
@@ -175,7 +173,7 @@ export async function deleteManagedAccount(id: string): Promise<MutationResult> 
 
 export const ROLE_MAX_ACCOUNTS: Record<Role, number> = {
   "asahikawa-gas": ASAHIKAWA_GAS_MAX_ACCOUNTS,
-  quest: 5,
+  quest: 3,
 };
 
 /** 指定ロールの全アカウント（管理者含む）を一覧取得 */

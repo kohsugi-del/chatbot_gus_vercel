@@ -41,7 +41,9 @@ export async function GET(req: NextRequest) {
       topQuestions,
       topDocs,
       unusedDocs,
+      keywords,
       categories,
+      modeHistory,
       modelUsageRows,
       cacheStatsRows,
       inputMethodRows,
@@ -50,7 +52,7 @@ export async function GET(req: NextRequest) {
       // 1. 選択月の会話（サマリー用）
       supabaseAdmin
         .from("conversations")
-        .select("id, resolved")
+        .select("id, escalated, resolved")
         .eq("client_id", CLIENT_ID)
         .gte("started_at", startDate)
         .lt("started_at", endDate),
@@ -94,7 +96,15 @@ export async function GET(req: NextRequest) {
         .from("documents")
         .select("id, title, url, source_url, updated_at"),
 
-      // 7. カテゴリ分布（選択月）
+      // 7. 緊急ワード（選択月）
+      supabaseAdmin
+        .from("messages")
+        .select("keyword_matched, created_at")
+        .not("keyword_matched", "is", null)
+        .gte("created_at", startDate)
+        .lt("created_at", endDate),
+
+      // 8. カテゴリ分布（選択月）
       supabaseAdmin
         .from("conversations")
         .select("category_id")
@@ -102,7 +112,17 @@ export async function GET(req: NextRequest) {
         .gte("started_at", startDate)
         .lt("started_at", endDate),
 
-      // 8. モデル使用比率・モデル別原価内訳（スマートルーティング）
+      // 9. モード履歴（選択月の normal 以外の会話）
+      supabaseAdmin
+        .from("conversations")
+        .select("id, mode, started_at, ended_at")
+        .eq("client_id", CLIENT_ID)
+        .neq("mode", "normal")
+        .gte("started_at", startDate)
+        .lt("started_at", endDate)
+        .order("started_at", { ascending: false }),
+
+      // 10. モデル使用比率・モデル別原価内訳（スマートルーティング）
       supabaseAdmin
         .from("messages")
         .select("model_used, estimated_cost_jpy")
@@ -111,7 +131,7 @@ export async function GET(req: NextRequest) {
         .gte("created_at", startDate)
         .lt("created_at", endDate),
 
-      // 9. キャッシュ統計
+      // 11. キャッシュ統計
       supabaseAdmin
         .from("messages")
         .select("cache_hit, cache_read_tokens")
@@ -120,7 +140,7 @@ export async function GET(req: NextRequest) {
         .gte("created_at", startDate)
         .lt("created_at", endDate),
 
-      // 10. 音声 vs テキスト入力比率（選択月のユーザーメッセージ）
+      // 13. 音声 vs テキスト入力比率（選択月のユーザーメッセージ）
       supabaseAdmin
         .from("messages")
         .select("input_method")
@@ -128,7 +148,7 @@ export async function GET(req: NextRequest) {
         .gte("created_at", startDate)
         .lt("created_at", endDate),
 
-      // 11. リクエスト残量（今月のユーザーメッセージ件数。選択月に関わらず常に実際の今月で集計）
+      // 14. リクエスト残量（今月のユーザーメッセージ件数。選択月に関わらず常に実際の今月で集計）
       supabaseAdmin
         .from("messages")
         .select("id", { count: "exact", head: true })
@@ -140,7 +160,9 @@ export async function GET(req: NextRequest) {
     // ── サマリー集計 ──────────────────────────────────────────
     const convData = monthlyConvs.data ?? [];
     const totalCount = convData.length;
+    const escalatedCount = convData.filter((r) => r.escalated).length;
     const resolvedCount = convData.filter((r) => r.resolved).length;
+    const escalationRate = totalCount > 0 ? (escalatedCount / totalCount) * 100 : 0;
     const resolutionRate = totalCount > 0 ? (resolvedCount / totalCount) * 100 : 0;
 
     // ── 月別推移 ──────────────────────────────────────────────
@@ -209,6 +231,32 @@ export async function GET(req: NextRequest) {
       return docUrl && !referencedSources.has(docUrl);
     });
 
+    // ── 緊急ワード集計 ＋ 日別推移 ───────────────────────────
+    const keywordMap: Record<string, number> = {};
+    const dailyMap: Record<string, number> = {};
+    for (const row of keywords.data ?? []) {
+      const kw = row.keyword_matched as string;
+      keywordMap[kw] = (keywordMap[kw] ?? 0) + 1;
+      const date = toJstDateStr(row.created_at as string); // YYYY-MM-DD (JST)
+      dailyMap[date] = (dailyMap[date] ?? 0) + 1;
+    }
+    // 選択月の全日を 0 で埋める（データなしの日も軸に表示するため）
+    const isCurrentMonth = year === nowJst.getUTCFullYear() && month === nowJst.getUTCMonth() + 1;
+    const lastDay = isCurrentMonth ? nowJst.getUTCDate() : new Date(year, month, 0).getDate();
+    for (let d = 1; d <= lastDay; d++) {
+      const dateKey = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      if (!(dateKey in dailyMap)) dailyMap[dateKey] = 0;
+    }
+    const keywordStats = Object.entries(keywordMap)
+      .sort(([, a], [, b]) => b - a)
+      .map(([keyword, count]) => ({ keyword, count }));
+    const dailyEmergencyTrend = Object.entries(dailyMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, count]) => {
+        const [, m, dd] = date.split("-");
+        return { date: `${Number(m)}/${Number(dd)}`, count };
+      });
+
     // ── カテゴリ分布 ──────────────────────────────────────────
     const catMap: Record<string, number> = {};
     for (const row of categories.data ?? []) {
@@ -222,6 +270,13 @@ export async function GET(req: NextRequest) {
         count,
         percentage: totalCount > 0 ? (count / totalCount) * 100 : 0,
       }));
+
+    // ── モード履歴 ────────────────────────────────────────────
+    const modeHistoryData = (modeHistory.data ?? []).map((row) => ({
+      mode: row.mode as string,
+      started_at: row.started_at as string,
+      ended_at: row.ended_at as string | null,
+    }));
 
     // ── モデル使用比率・モデル別原価内訳 ──────────────────────
     // 対象はGemini 2.5 Flash-Lite / Flashの2種類のみ（クウェスト社内アカウント向け）
@@ -304,7 +359,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       summary: {
         total_count: totalCount,
+        escalated_count: escalatedCount,
         resolved_count: resolvedCount,
+        escalation_rate: Math.round(escalationRate * 10) / 10,
         resolution_rate: Math.round(resolutionRate * 10) / 10,
       },
       monthly_trend: monthlyTrend,
@@ -312,7 +369,10 @@ export async function GET(req: NextRequest) {
       top_questions: topQuestionsRanking,
       top_docs: topDocsRanking,
       unused_docs: unusedDocList,
+      keyword_stats: keywordStats,
       category_distribution: categoryDist,
+      mode_history: modeHistoryData,
+      daily_emergency_trend: dailyEmergencyTrend,
       // 運用コストに関わる情報（モデル使用比率・キャッシュ統計・APIコスト）はクウェスト社内アカウントのみに表示
       model_usage: isQuest ? modelUsage : undefined,
       cache_stats: isQuest ? cacheStats : undefined,
