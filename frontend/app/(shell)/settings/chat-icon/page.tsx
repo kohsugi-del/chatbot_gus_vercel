@@ -152,7 +152,7 @@ export default function ChatIconSettingsPage() {
           </div>
 
           <label className="mb-2 block text-sm text-foreground">タイトル</label>
-          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="旭川ガス　個人サポート" />
+          <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="旭川ガス　お客さまサポート" />
 
           <div className="mt-4 flex gap-2">
             <Button onClick={handleSave} disabled={saving}>

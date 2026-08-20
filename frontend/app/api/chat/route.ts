@@ -204,12 +204,6 @@ async function searchSupabase(
   return fuseHybridResults(vectorRetrieved, keywordRetrieved).slice(0, topK);
 }
 
-// 出典ホバー表示用：チャンク本文から先頭の一部だけを抜粋する（改行・連続空白を整形）
-function makeSnippet(text: string, maxChars = 220): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  return flat.length > maxChars ? flat.slice(0, maxChars).trim() + "…" : flat;
-}
-
 function lastUserFromHistory(body: ChatBody): string {
   const direct = String(body.message ?? body.question ?? "").trim();
   if (direct) return direct;
@@ -280,15 +274,9 @@ function buildAiMessages(opts: {
 }): ModelMessage[] {
   const { question, history, contexts } = opts;
 
-  // 資料に [1] [2] ... の番号を振り、回答本文中で文末に番号を引用させる
-  // （NotebookLM風のインライン出典表示のため。フロント側はこの番号をパースしてチップ化する）
   const ragContext = contexts.length > 0
-    ? contexts.map((c, i) => `[${i + 1}] source: ${c.source}\n${c.text}`.trim()).join("\n\n")
+    ? contexts.map((c) => `source: ${c.source}\n${c.text}`.trim()).join("\n\n")
     : "(資料なし)";
-
-  const citationInstruction = contexts.length > 0
-    ? `\n\n# 出典の示し方（重要・必ず守ってください）\n上記の資料の内容を回答に使ったときは、その情報の根拠となった一文の末尾（句点「。」の直前）に [1] のように資料番号を付けてください。複数の資料を参照した一文には [1][2] のように連続して付けてください。資料を使っていない一般的な挨拶・案内文には付けないでください。番号は上記の資料に実在する番号だけを使い、存在しない番号や資料が無いのに番号を付けることはしないでください。`
-    : "";
 
   const historyMessages: ModelMessage[] = history.map((m) => ({
     role: m.role as "user" | "assistant",
@@ -297,7 +285,7 @@ function buildAiMessages(opts: {
 
   const lastUserMessage: ModelMessage = {
     role: "user",
-    content: `# 資料\n${ragContext}${citationInstruction}\n\n# 今回の質問\n${question}\n\n# 回答（日本語）\n`,
+    content: `# 資料\n${ragContext}\n\n# 今回の質問\n${question}\n\n# 回答（日本語）\n`,
   };
 
   return [...historyMessages, lastUserMessage];
@@ -424,29 +412,11 @@ export async function POST(req: NextRequest) {
     console.log(`[Cost] estimated_cost_jpy: ${estimatedCostJpy}`);
     console.log(`[DEBUG] rawAnswer length: ${rawAnswer.length}, preview: "${rawAnswer.slice(0, 100)}"`);
 
-    // 資料番号は1〜retrieved.lengthのみ有効。モデルが存在しない番号を幻覚した場合はマーカーごと除去する
-    const maxCitationNumber = retrieved.length;
     const answer = rawAnswer
       .replace(/\[#\d+\]/g, "")
-      .replace(/\[(\d+)\]/g, (full, numStr: string) => {
-        const n = Number(numStr);
-        return n >= 1 && n <= maxCitationNumber ? full : "";
-      })
       .replace(/[^\S\n]{2,}/g, " ") // 改行以外の連続空白（スペース・タブ）だけを1個に整形
       .replace(/\n{3,}/g, "\n\n")   // 3行以上の空行は2行までに圧縮
       .trim();
-
-    // 回答本文で実際に引用された資料番号だけを出典として返す（インライン表示用）
-    const citedNumbers = [
-      ...new Set(Array.from(answer.matchAll(/\[(\d+)\]/g), (m) => Number(m[1]))),
-    ].sort((a, b) => a - b);
-    const citations = citedNumbers
-      .map((n) => {
-        const r = retrieved[n - 1];
-        if (!r) return null;
-        return { number: n, id: r.id, title: r.title, source: r.source, snippet: makeSnippet(r.text) };
-      })
-      .filter((c): c is NonNullable<typeof c> => c !== null);
 
     // ── 7) ログ書き込み ───────────────────────────────────────
     let conversationId = body.conversation_id ?? null;
@@ -489,13 +459,39 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 8) レスポンス ─────────────────────────────────────────
+    // エリア判定: ユーザーの質問に旭川/江別が含まれるか
+    const mentionsEbetsu    = q.includes("江別");
+    const mentionsAsahikawa = q.includes("旭川");
+    // タイトルが「江別地区」または「（江別）」専用ページかを判定
+    // 「江別地区」または「（江別）」を含むが「旭川・江別」のような両エリア共通ページは除かない
+    const isEbetsuOnly = (title: string) =>
+      /江別地区|（江別）[^・]|（江別）$/.test(title);
+
     const response: ChatResponse = {
       message_id: messageId,
       conversation_id: conversationId ?? "",
       answer,
       confidence_score: confidenceScore,
-      // 回答本文中の [1][2]... に対応する出典（インライン表示用。文中で実際に引用された分のみ）
-      citations,
+      // 有効なURLを持つ結果から重複排除・エリアフィルタ・最高類似度の1件のみ返す
+      // （オートカット前のrawRetrievedを使用。カット後だけを対象にすると、上位がエリア不一致で
+      //   フィルタされた場合に本来引用できたはずのドキュメントが枯渇するおそれがあるため）
+      retrieved_docs: rawRetrieved
+        .filter((r) => r.source.startsWith("http"))
+        // エリア未指定 or 旭川指定のとき → 江別専用ページを除外
+        .filter((r) => {
+          if (mentionsEbetsu) return true;
+          if (mentionsAsahikawa || (!mentionsEbetsu && !mentionsAsahikawa)) {
+            return !isEbetsuOnly(r.title);
+          }
+          return true;
+        })
+        .filter((r, i, arr) => arr.findIndex((x) => x.source === r.source) === i)
+        .slice(0, 1)
+        .map((r) => ({
+          id: r.id,
+          title: r.title,
+          source: r.source,
+        })),
       escalated: !!matchedKeyword,
       keyword_matched: matchedKeyword,
       response_ms: responseMs,
