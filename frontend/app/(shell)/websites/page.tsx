@@ -5,6 +5,8 @@ import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+
 type SiteStatus = "pending" | "crawling" | "done" | "error";
 
 type Site = {
@@ -15,6 +17,7 @@ type Site = {
   status: SiteStatus | string;
   ingested_urls?: number | null;
   error_message?: string | null;
+  created_at?: string;
 };
 
 type BulkResult = {
@@ -54,6 +57,7 @@ export default function WebSiteManagePage() {
   const [scope, setScope] = useState<"single" | "all">("single");
   const FIXED_TYPE = "静的HTML";
   const [submitting, setSubmitting] = useState(false);
+  const [autoIngest, setAutoIngest] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkResult, setBulkResult] = useState<BulkResult | null>(null);
@@ -62,19 +66,40 @@ export default function WebSiteManagePage() {
   /** 一覧取得（API） */
   const fetchSites = async () => {
     try {
-      const res = await fetch("/api/sites");
+      const res = await fetch(`${API_BASE}/sites`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data: Site[] = await res.json();
       setSites(data);
     } catch (e) {
       console.error("fetchSites:", e);
-      setErrorMsg("サイト一覧の取得に失敗しました。");
+      setErrorMsg("バックエンドに接続できません。サーバーが起動しているか確認してください。");
     }
   };
 
-  // 取り込み（クロール）実行は現在このデプロイ環境では未提供（別途対応予定）
-  const startIngest = async (_id: number) => {
-    setErrorMsg("この環境では取り込み（クロール）機能はまだ利用できません。サイトの登録・削除のみ可能です。");
+  /** ingest実行（API） */
+  const startIngest = async (id: number) => {
+    setLoading(true);
+    setErrorMsg("");
+    try {
+      // UIに即反映
+      setSites((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, status: "crawling", error_message: null } : s))
+      );
+
+      const res = await fetch(`${API_BASE}/sites/${id}/reingest_local`, { method: "POST" });
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}));
+        throw new Error(detail?.detail ?? `HTTP ${res.status}`);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setErrorMsg(`取り込み開始に失敗しました: ${msg}`);
+      setSites((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, status: "error", error_message: msg } : s))
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   /** サイト登録（API） */
@@ -86,7 +111,7 @@ export default function WebSiteManagePage() {
     setBulkResult(null);
 
     try {
-      const res = await fetch("/api/sites", {
+      const res = await fetch(`${API_BASE}/sites`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: u, scope, type: FIXED_TYPE }),
@@ -98,9 +123,13 @@ export default function WebSiteManagePage() {
           : (detail?.detail ?? `HTTP ${res.status}`);
         throw new Error(msg);
       }
-      await res.json();
+      const created: Site = await res.json();
       setUrl("");
       await fetchSites();
+
+      if (autoIngest) {
+        await startIngest(created.id);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setErrorMsg(`追加に失敗しました: ${msg}`);
@@ -128,7 +157,7 @@ export default function WebSiteManagePage() {
           continue;
         }
         try {
-          const res = await fetch("/api/sites", {
+          const res = await fetch(`${API_BASE}/sites`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ url: u, scope, type: FIXED_TYPE }),
@@ -151,6 +180,12 @@ export default function WebSiteManagePage() {
       setBulkResult({ total: urls.length, ok, ng });
       setBulkText("");
       await fetchSites();
+
+      if (autoIngest) {
+        for (const item of ok) {
+          if (typeof item.id === "number") await startIngest(item.id);
+        }
+      }
     } finally {
       setSubmitting(false);
     }
@@ -161,7 +196,7 @@ export default function WebSiteManagePage() {
     if (!confirm("このWebサイトを削除しますか？")) return;
     setLoading(true);
     try {
-      const res = await fetch(`/api/sites/${id}`, { method: "DELETE" });
+      const res = await fetch(`${API_BASE}/sites/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await fetchSites();
     } catch (e: unknown) {
@@ -243,6 +278,16 @@ export default function WebSiteManagePage() {
               </select>
               <div className="hidden sm:block" />
             </div>
+
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={autoIngest}
+                onChange={(e) => setAutoIngest(e.target.checked)}
+                className="h-4 w-4"
+              />
+              追加後にすぐ取り込みを開始する
+            </label>
 
             <Button onClick={bulkMode ? addSitesBulk : addSite} disabled={submitting} className="w-full">
               {submitting
@@ -327,7 +372,7 @@ export default function WebSiteManagePage() {
                         onClick={() => startIngest(site.id)}
                         disabled={loading || site.status === "crawling"}
                         className="text-xs"
-                        title="この環境では未提供です"
+                        title="取り込み開始"
                       >
                         ▶ 取込
                       </Button>
@@ -339,7 +384,7 @@ export default function WebSiteManagePage() {
                           onClick={() => startIngest(site.id)}
                           disabled={loading}
                           className="text-xs"
-                          title="この環境では未提供です"
+                          title="再取り込み"
                         >
                           🔄 再取込
                         </Button>
