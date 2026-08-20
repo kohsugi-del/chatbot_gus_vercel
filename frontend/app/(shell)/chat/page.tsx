@@ -276,14 +276,14 @@ export default function ChatPage() {
           （アンカー位置からJSで計算し、上に余白が無ければ下向きに開く） */}
       {citeTooltip && (
         <div
-          className="pointer-events-none fixed z-50 w-64 max-w-[calc(100vw-16px)] rounded-lg bg-slate-800 p-3 text-sm leading-relaxed text-white shadow-xl"
+          className="pointer-events-none fixed z-50 w-56 max-w-[calc(100vw-16px)] rounded-lg bg-slate-800 p-2 text-[11px] leading-relaxed text-white shadow-xl"
           style={{
             left: citeTooltip.x,
             top: citeTooltip.openUp ? undefined : citeTooltip.y,
             bottom: citeTooltip.openUp ? `calc(100vh - ${citeTooltip.y}px)` : undefined,
           }}
         >
-          <span className="mb-0.5 block text-xs font-bold opacity-75">
+          <span className="mb-0.5 block text-[10px] font-bold opacity-75">
             {citeTooltip.citation.title || citeTooltip.citation.source}
           </span>
           <span>{citeTooltip.citation.snippet || "抜粋を取得できませんでした"}</span>
