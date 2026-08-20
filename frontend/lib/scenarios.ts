@@ -32,6 +32,18 @@ export type Scenario = {
   name: string;
   entryNodeId: string;
   nodes: Record<string, ScenarioNode>;
+  /** 自由入力チャットでこのシナリオを検出するためのキーワード（最長一致を優先） */
+  keywords?: string[];
+  /**
+   * 自由入力チャット（RAG）向けの正確な要約回答。
+   * スクレイピングした申込フォームページはノイズが多く、RAGがそこから誤った
+   * 回答（例: 本来スタッフ立ち合いが必要な「開栓」を、お客さま自身での
+   * バルブ操作と誤って案内してしまう）を生成することがあるため、
+   * シナリオボタンで案内している正確な内容をそのままシステムプロンプトに
+   * 注入し、テストチャット・埋め込みプレビューのどちらでも同じ正しい回答に
+   * 揃える。
+   */
+  summary?: string;
 };
 
 // ──────────────────────────────────────────────
@@ -40,6 +52,25 @@ export type Scenario = {
 export const CATEGORY_SCENARIOS: Record<string, string[]> = {
   "手続き・契約": ["kaisen", "hissen", "meigi"],
 };
+
+// ──────────────────────────────────────────────
+// 自由入力チャット向け: キーワードから該当シナリオを検索
+// ★ 複数のシナリオのキーワードが同時にマッチする場合、最も長い（＝より具体的な）
+// ものを優先する（route.tsの緊急ワード・トピック判定と同じ考え方）
+// ──────────────────────────────────────────────
+export function findScenarioByKeyword(query: string): Scenario | null {
+  let best: Scenario | null = null;
+  let bestLen = 0;
+  for (const scenario of Object.values(SCENARIOS)) {
+    for (const kw of scenario.keywords ?? []) {
+      if (kw.length > bestLen && query.includes(kw)) {
+        best = scenario;
+        bestLen = kw.length;
+      }
+    }
+  }
+  return best;
+}
 
 // ──────────────────────────────────────────────
 // シナリオデータ
@@ -51,6 +82,16 @@ export const SCENARIOS: Record<string, Scenario> = {
     id: "kaisen",
     name: "開栓（ガスの使用開始）",
     entryNodeId: "area",
+    keywords: ["開栓", "ガスの使用開始", "使用開始の申し込み", "ガスを使い始め", "新規契約"],
+    summary:
+      "ガスの開栓（新規のご使用開始）は、安全確認のため必ず旭川ガスのスタッフが訪問して行います。お客さまご自身でガス栓・メーターガス栓を開けることはできません。\n\n" +
+      "・工事希望日の1週間前までにお申し込みください（旭川市内・江別地区とも）\n" +
+      "・工事当日はお客さまの立ち合いが必要です（約30分程度）\n" +
+      "・ご用意いただくもの：本人確認書類（運転免許証・健康保険証など）、お客様番号（旭川ガスからのご案内書類に記載）\n\n" +
+      "お申し込みフォーム：\n" +
+      "・旭川地区：https://asahikawa-gas.co.jp/?page_id=590\n" +
+      "・江別地区：https://asahikawa-gas.co.jp/?page_id=665\n\n" +
+      "注意：地震などでガスメーターが自動的に止まった場合に行う「復帰操作（ガスが出ないときの対処）」は、この新規開栓の手続きとは別物です。質問がその趣旨と判断できる場合は、開栓の案内ではなく復帰操作の案内を優先してください。",
     nodes: {
       area: {
         id: "area",
@@ -98,6 +139,14 @@ export const SCENARIOS: Record<string, Scenario> = {
     id: "hissen",
     name: "閉栓（ガスの使用停止）",
     entryNodeId: "reason",
+    keywords: ["閉栓", "ガスの使用停止", "使用停止の申し込み", "ガスを止め", "解約"],
+    summary:
+      "ガスの閉栓（ご使用停止）は、以下のフォームからお申し込みいただけます。\n\n" +
+      "・引越しによる閉栓：ご使用停止希望日の3日前までにお申し込みください。メーターの閉栓作業は立ち合い不要です\n" +
+      "・その他の理由による閉栓：ご使用停止希望日の3日前までにお申し込みください\n\n" +
+      "お申し込みフォーム：\n" +
+      "・旭川地区：https://asahikawa-gas.co.jp/?page_id=589\n" +
+      "・江別地区：https://asahikawa-gas.co.jp/?page_id=679",
     nodes: {
       reason: {
         id: "reason",
@@ -177,6 +226,15 @@ export const SCENARIOS: Record<string, Scenario> = {
     id: "meigi",
     name: "名義変更",
     entryNodeId: "intro",
+    keywords: ["名義変更", "契約者変更"],
+    summary:
+      "名義変更のお手続きには、旧名義人・新名義人の両方の情報が必要になります。\n\n" +
+      "ご準備いただくもの：\n" +
+      "・旧名義人の本人確認書類\n" +
+      "・新名義人の本人確認書類\n" +
+      "・印鑑（双方）\n\n" +
+      "書類が揃いましたら、以下のフォームからお申し込みいただけます。\n" +
+      "・お申し込みフォーム：https://asahikawa-gas.co.jp/?page_id=210",
     nodes: {
       intro: {
         id: "intro",

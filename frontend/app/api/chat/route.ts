@@ -20,6 +20,7 @@ import { applyAutocut } from "@/lib/autocut";
 import { fuseHybridResults } from "@/lib/hybridSearch";
 import { getSystemPromptTemplate, renderSystemPromptTemplate } from "@/lib/systemPrompt";
 import { getEmergencyKeywords } from "@/lib/emergencyKeywords";
+import { findScenarioByKeyword } from "@/lib/scenarios";
 import { buildModel, getModelId } from "@/lib/aiProvider";
 import { decryptSecret } from "@/lib/settingsCrypto";
 import type { ConversationMode, ClientConfig, ChatRequest, ChatResponse } from "@/types/log";
@@ -232,7 +233,8 @@ function buildSystemPrompt(
   categoryId: string | null,
   mode: ConversationMode,
   config: ClientConfig,
-  scenarioContext?: string
+  scenarioContext?: string,
+  scenarioSummary?: string
 ): string {
   const base = renderSystemPromptTemplate(promptTemplate, {
     clientId: config.clientId,
@@ -260,7 +262,14 @@ function buildSystemPrompt(
     ? `\n\n【現在の手続き文脈】\nユーザーは「${scenarioContext}」の手続き中に質問しています。\nこの文脈を踏まえて、手続きに関連した回答を優先してください。`
     : "";
 
-  return base + categoryContext + emergencyContext + scenarioContextStr;
+  // 手続き系の定型シナリオ（開栓・閉栓・名義変更など）に該当する質問は、
+  // スクレイピング資料（申込フォームページ等）のノイズで誤った回答になりやすいため、
+  // 正確な要約回答を資料より優先する指示として注入する
+  const scenarioSummaryStr = scenarioSummary
+    ? `\n\n【正確な手続き情報（資料より優先してください）】\n${scenarioSummary}`
+    : "";
+
+  return base + categoryContext + emergencyContext + scenarioContextStr + scenarioSummaryStr;
 }
 
 // ============================================================
@@ -368,7 +377,19 @@ export async function POST(req: NextRequest) {
 
     // ── 4) システムプロンプト生成 ─────────────────────────────
     const promptTemplate = await getSystemPromptTemplate();
-    const systemPrompt = buildSystemPrompt(promptTemplate, categoryId, mode, config, body.scenario_context);
+    // 自由入力の質問が「開栓」「閉栓」「名義変更」などの定型手続きに該当する場合、
+    // シナリオボタンで案内している正確な要約をシステムプロンプトに注入する。
+    // テストチャット（カテゴリ選択UIなし）と埋め込みプレビュー（カテゴリ選択UIあり）の
+    // どちらで質問しても同じ正確な内容の回答になるようにするため
+    const matchedScenario = findScenarioByKeyword(q);
+    const systemPrompt = buildSystemPrompt(
+      promptTemplate,
+      categoryId,
+      mode,
+      config,
+      body.scenario_context,
+      matchedScenario?.summary
+    );
 
     // ── 5) スマートルーティング ───────────────────────────────
     const complexityScore = calcComplexityScore(q, retrieved, sessionTurns);
@@ -475,23 +496,28 @@ export async function POST(req: NextRequest) {
       // 有効なURLを持つ結果から重複排除・エリアフィルタ・最高類似度の1件のみ返す
       // （オートカット前のrawRetrievedを使用。カット後だけを対象にすると、上位がエリア不一致で
       //   フィルタされた場合に本来引用できたはずのドキュメントが枯渇するおそれがあるため）
-      retrieved_docs: rawRetrieved
-        .filter((r) => r.source.startsWith("http"))
-        // エリア未指定 or 旭川指定のとき → 江別専用ページを除外
-        .filter((r) => {
-          if (mentionsEbetsu) return true;
-          if (mentionsAsahikawa || (!mentionsEbetsu && !mentionsAsahikawa)) {
-            return !isEbetsuOnly(r.title);
-          }
-          return true;
-        })
-        .filter((r, i, arr) => arr.findIndex((x) => x.source === r.source) === i)
-        .slice(0, 1)
-        .map((r) => ({
-          id: r.id,
-          title: r.title,
-          source: r.source,
-        })),
+      // ★ 定型シナリオの要約回答を使った場合、資料ベースの参考リンクは無関係な
+      // ページ（スクレイピング資料のノイズでヒットしたページ）を指しがちで、
+      // 本文中の正しいお申し込みリンクと矛盾して見えるため表示しない
+      retrieved_docs: matchedScenario
+        ? []
+        : rawRetrieved
+            .filter((r) => r.source.startsWith("http"))
+            // エリア未指定 or 旭川指定のとき → 江別専用ページを除外
+            .filter((r) => {
+              if (mentionsEbetsu) return true;
+              if (mentionsAsahikawa || (!mentionsEbetsu && !mentionsAsahikawa)) {
+                return !isEbetsuOnly(r.title);
+              }
+              return true;
+            })
+            .filter((r, i, arr) => arr.findIndex((x) => x.source === r.source) === i)
+            .slice(0, 1)
+            .map((r) => ({
+              id: r.id,
+              title: r.title,
+              source: r.source,
+            })),
       escalated: !!matchedKeyword,
       keyword_matched: matchedKeyword,
       response_ms: responseMs,
